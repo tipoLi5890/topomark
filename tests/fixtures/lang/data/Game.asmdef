@@ -1,0 +1,5 @@
+{
+    "name": "Arcade.Games",
+    "references": ["Arcade.Core", "Arcade.UI"],
+    "autoReferenced": true
+}

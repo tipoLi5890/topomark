@@ -1,0 +1,20 @@
+{
+  "name": "topomark",
+  "interface": {
+    "displayName": "topomark: a code map for AI coding agents"
+  },
+  "plugins": [
+    {
+      "name": "topomark",
+      "source": {
+        "source": "local",
+        "path": "./"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

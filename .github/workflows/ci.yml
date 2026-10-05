@@ -1,0 +1,86 @@
+name: CI
+
+# Private repo on GitHub Free (2,000 runner minutes a month): keep the matrix small,
+# cancel superseded runs, and avoid macOS runners (10x minute multiplier).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: lint (ruff, mypy, manifests, skills)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      # Dev tools live only in CI; topomark itself has zero dependencies.
+      - name: Install ruff and mypy
+        run: python -m pip install ruff mypy
+      - name: ruff check
+        run: ruff check src tests tools --extend-exclude tests/fixtures
+      - name: mypy (scope in pyproject [tool.mypy].files)
+        run: mypy
+      - name: Manifest versions match pyproject
+        run: python tools/sync_version.py --check
+      - name: Codex manifests generated from .claude-plugin
+        run: python tools/sync_codex_manifests.py --check
+      - name: Skill frontmatter and size
+        run: python tools/lint_skills.py
+
+  test:
+    name: test (${{ matrix.os }} / py${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            python-version: "3.11"
+          - os: ubuntu-latest
+            python-version: "3.14"
+          - os: windows-latest
+            python-version: "3.12"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Unit tests (stdlib unittest)
+        run: python -m unittest discover -s tests -t .
+        env:
+          PYTHONUTF8: "1"
+
+  cli-smoke:
+    name: cli smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: bin/topomark is executable
+        run: test -x bin/topomark
+      - name: bin/topomark --version (clean checkout, no install)
+        run: bin/topomark --version
+      - name: capabilities --json
+        run: PYTHONPATH=src python -m topomark capabilities --json
+      - name: init --dry-run on this repo writes nothing
+        run: |
+          before=$(git status --porcelain --untracked-files=all)
+          bin/topomark init --dry-run
+          test "$before" = "$(git status --porcelain --untracked-files=all)"

@@ -1,0 +1,9 @@
+# Service config.
+server:
+  port: 8080
+  hosts:
+    - name: a
+      url: "http://x"
+database:
+  url: postgres://db
+"quoted key": 1

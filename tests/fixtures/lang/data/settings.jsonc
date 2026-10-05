@@ -1,0 +1,6 @@
+// Editor settings.
+{
+  "editor.tabSize": 2, // inline comment
+  "files.exclude": { "**/.git": true, },
+  "url": "http://example.com/*not-a-comment*/",
+}

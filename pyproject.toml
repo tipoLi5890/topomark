@@ -1,0 +1,61 @@
+[build-system]
+# PEP 639 bare license string (`license = "MIT"`) requires setuptools >= 77.
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+# The distribution, the import package and the CLI command are all `topomark`;
+# keep the three in lockstep.
+name = "topomark"
+version = "0.1.0"
+description = "A zero-dependency code map for AI coding agents: progressive-disclosure docs, per-file review stamps that catch stale summaries, and fast symbol/impact/test navigation for any repo."
+requires-python = ">=3.11"
+readme = "README.md"
+license = "MIT"
+authors = [{ name = "Li, ching yu", email = "tipo5890Li@gmail.com" }]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Topic :: Software Development :: Documentation",
+  "Topic :: Software Development :: Quality Assurance",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Operating System :: OS Independent",
+]
+
+[project.urls]
+Homepage = "https://github.com/tipoLi5890/topomark"
+Repository = "https://github.com/tipoLi5890/topomark.git"
+Changelog = "https://github.com/tipoLi5890/topomark/blob/main/CHANGELOG.md"
+
+[project.scripts]
+topomark = "topomark.cli:main"
+
+# Zero runtime dependencies is a hard rule (see CLAUDE.md). Tests use stdlib unittest;
+# ruff and mypy run only inside CI containers.
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"topomark.templates" = ["en/*.md", "zh-Hant/*.md"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "W"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+files = ["src/topomark/errors.py", "src/topomark/contract.py", "src/topomark/config.py", "src/topomark/repo.py"]
+disallow_untyped_defs = true
+follow_imports = "silent"
+ignore_missing_imports = true
