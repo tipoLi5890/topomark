@@ -20,8 +20,8 @@ two areas claiming the same longest prefix is a conflict.
 Units: with ``granularity: file`` every required file is a unit and needs its own
 row (full repo path in backticks). With ``dir`` the unit is the file's directory
 truncated to ``depth`` segments below the scope root, written ``path/`` in
-backticks, optionally followed by a file count ``（N 檔）`` / ``(N files)`` that
-``check`` verifies.
+backticks, optionally followed by a file count ``(N files)`` that ``check``
+verifies.
 """
 
 from __future__ import annotations
@@ -171,4 +171,4 @@ def mentions(text: str, ref: str) -> bool:
     return f"`{ref}`" in text
 
 
-UNIT_COUNT = re.compile(r"`([^`\n]+/)`\s*[（(]\s*(\d+)\s*(?:檔|files?|个文件|ファイル)")
+UNIT_COUNT = re.compile(r"`([^`\n]+/)`\s*\(\s*(\d+)\s*files?\b")

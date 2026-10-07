@@ -105,14 +105,26 @@ class InitTest(unittest.TestCase):
         self.assertEqual(r.cli("init", "--force")[0], 0)
         self.assertIn("area: backend", r.read("docs/codemap/backend.md"))
 
-    def test_zh_hant_and_docs_dir(self) -> None:
+    def test_docs_dir_and_english_only(self) -> None:
         r = self.repo
-        r.json("init", "--lang", "zh-Hant", "--docs-dir", "docs/map")
-        text = r.read("docs/map/README.md")
-        self.assertIn("分區表", text)
-        self.assertNotIn("—", text)
-        self.assertIn('docs_dir = "docs/map"', r.read("topomark.toml"))
-        self.assertIn('lang = "zh-Hant"', r.read("topomark.toml"))
+        self.assertEqual(r.cli("init", "--lang", "zh-Hant")[0], 2)  # the flag is gone
+        d = r.json("init", "--docs-dir", "docs/map")
+        self.assertEqual(d["lang"], "en")
+        self.assertIn("## Areas", r.read("docs/map/README.md"))
+        toml = r.read("topomark.toml")
+        self.assertIn('docs_dir = "docs/map"', toml)
+        self.assertNotIn("lang =", toml)
+
+
+class RemovedLangTest(unittest.TestCase):
+    def test_lang_in_config_is_a_config_error(self) -> None:
+        with TempRepo({"a.py": "def run():\n    pass\n", "topomark.toml": '[topomark]\nlang = "en"\n'}) as r:
+            rc, out, err = r.cli("check")
+            self.assertEqual(rc, 3)
+            self.assertIn("lang was removed", err)
+            self.assertIn("Delete the `lang = ...` line", err)
+            d = r.json("outline", "a.py", expect=3)
+            self.assertEqual(d["error"]["code"], "CONFIG")
 
 
 class DraftTest(unittest.TestCase):
@@ -149,25 +161,27 @@ class DraftTest(unittest.TestCase):
             r.cli("sync")
             self.assertIn("fan-in 2/1", r.read("docs/codemap/backend.md"))
 
-    def test_draft_dir_granularity_and_zh(self) -> None:
+    def test_draft_dir_granularity(self) -> None:
         files = {f"svc/billing/m{i}.py": f'"""Billing part {i}."""\n\nclass Part{i}:\n    pass\n' for i in range(3)}
         files["svc/mail/send.py"] = '"""Sends mail."""\n\ndef send_mail():\n    pass\n'
-        files["topomark.toml"] = '[topomark]\nlang = "zh-Hant"\n'
         files["docs/codemap/README.md"] = "[svc](svc.md)\n"
         files["docs/codemap/svc.md"] = ("---\narea: svc\ntitle: Services\nsummary: services\ngranularity: dir\n"
-                                        "depth: 1\nscope:\n  - svc/\n---\n\n# Services\n\n## 檔案表\n\n"
-                                        "| 單元 | 摘要 | 影響範圍 |\n|---|---|---|\n\n## 延伸閱讀\n")
+                                        "depth: 1\nscope:\n  - svc/\n---\n\n# Services\n\n## Units\n\n"
+                                        "| unit | summary | impact |\n|---|---|---|\n\n## Further reading\n")
         with TempRepo(files) as r:
             d = r.json("draft", "svc", "--write")
             rows = {row["unit"]: row for row in d["rows"]}
             self.assertEqual(set(rows), {"svc/billing/", "svc/mail/"})
             self.assertEqual(rows["svc/billing/"]["files"], 3)
             self.assertEqual(rows["svc/billing/"]["summary"], "Billing part 0.")
-            self.assertEqual(rows["svc/mail/"]["impact"], "扇入 0／0")
+            self.assertEqual(rows["svc/mail/"]["impact"], "fan-in 0/0")
             text = r.read("docs/codemap/svc.md")
-            self.assertIn("`svc/billing/`（3 檔）", text)  # the count sits where `check` verifies it
-            self.assertLess(text.index("`svc/mail/`"), text.index("## 延伸閱讀"))
+            self.assertIn("`svc/billing/` (3 files)", text)  # the count sits where `check` verifies it
+            self.assertIn("`svc/mail/` (1 file)", text)
+            self.assertLess(text.index("`svc/mail/`"), text.index("## Further reading"))
             self.assertNotIn("NOT_LISTED", r.json("check", "--no-stamps", expect=None)["counts"])
+            r.write({"docs/codemap/svc.md": text.replace("(3 files)", "(2 files)")})
+            self.assertIn("UNIT_COUNT", r.json("check", "--no-stamps", expect=None)["counts"])
 
     def test_draft_creates_table_when_missing_and_unknown_area(self) -> None:
         files = {"a/x.py": '"""X."""\n', "docs/codemap/README.md": "[a](a.md)\n",

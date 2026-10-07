@@ -2,13 +2,14 @@
 name: topomark
 description: >-
   Find your way around a repository with the topomark CLI instead of reading
-  whole files: a layered code map (L0 index, one file per area, then the code),
-  symbol outlines and single-symbol reads, definitions, references, impact of a
-  change, the tests a change needs, and a ranked repo map in a token budget.
-  Keeps the map honest with per-file review stamps. Load for "where is X
-  implemented", "what calls this", "what breaks if I change Y", "which tests
-  should I run", "this file is too big to read", "orient me in this repo",
-  "update the code map", "topomark check fails", or setting up a code map with
+  whole files: a layered code map (L0 index, one file per area, then the
+  code), symbol outlines and single-symbol reads, definitions, keyword search,
+  the code behind an error or stack trace, impact of a change, a briefing
+  before an edit, a syntax check after it, the tests it needs, and a ranked
+  repo map. Keeps the map honest with per-file review stamps. Load for "where
+  is X implemented", "which code printed this error", "what breaks if I change
+  Y", "which tests should I run", "this file is too big to read", "orient me
+  in this repo", "update the code map", "topomark check fails", or setting up
   `topomark init`.
 ---
 
@@ -43,10 +44,13 @@ install section has the options (clone and run `bin/topomark`, or `pipx install`
 | Moment | Do |
 |---|---|
 | Orienting in an unfamiliar repo | Read the L0 index (`docs/codemap/README.md` or the configured `docs_dir`); no code map yet → `topomark map --tokens 2000` |
-| Before reading a big file | `topomark outline <file>`, then `topomark symbol <file>#<Name>` for the part you need |
+| Before reading a big file | `topomark outline <file>`, then `topomark symbol <file>#<Name>` for the part you need (`--skeleton` for a whole class without its bodies) |
 | Looking for where something lives | `topomark find <Name>`; then `topomark owner <path>` for its area file |
-| Before editing | `topomark impact <Name or file>`: callers, cross-area users, tests, docs that mention it |
-| After editing | `topomark tests-for --diff` and run what it prints; then `topomark check` |
+| An error message or a stack trace | `topomark locate "<message as printed>"`, or `topomark locate --trace <file>` (stdin: `--trace`) |
+| Looking for code by what it does, not its name | `topomark search <2 to 5 keywords>`: keywords, never a pasted issue |
+| Before editing | `topomark brief <file or Name>`: area row, outline, most-coupled callers, tests and the run command in one answer; `impact` for the full lists |
+| After editing | `topomark syntax` (exit 1 names the file and line that no longer parse); `topomark tests-for --diff` and run what it prints; then `topomark check` |
+| Before committing | `topomark changes` (or `--staged`): interface vs body changes, who still uses a changed name, tests, rows to review |
 | The code map says something is stale | `topomark stale`, `topomark diff <unit>`, fix the row, `topomark stamp <unit>` |
 | Adopting topomark in a repo | `topomark init --dry-run` first; see `reference/adoption.md` |
 
@@ -57,9 +61,13 @@ install section has the options (clone and run `bin/topomark`, or `pipx install`
    (`fan-in P/T`: how many production and test files mention what it declares), the data flow, the
    change checklist and pitfalls. Rules and reasons live in the files it links (CLAUDE.md, ADRs).
 3. **Outline**: `topomark outline <file>` lists symbols with line ranges, kinds and doc summaries.
-4. **Symbol**: `topomark symbol <file>#<Name>` prints just that symbol; `--signature` for less.
-5. **Edit**, after `topomark impact <Name>` if anything else could break.
+4. **Symbol**: `topomark symbol <file>#<Name>` prints just that symbol; `--skeleton` or `--signature`
+   for less.
+5. **Edit**, after `topomark brief <file or Name>` (or `impact` for every caller) if anything else
+   could break. Then `topomark syntax`: it names any edited file that no longer parses.
 6. **Tests**: `topomark tests-for --diff` prints the test files and a runnable command; run it.
+   `via <file>` means the test reaches your change through a caller. When it lists a file as
+   uncovered, says `may miss tests`, or prints a suite command, run the whole suite.
 7. **Map upkeep**: `topomark check`. On `STAMP_CHANGED` run `topomark diff <unit>`, update the row
    if its summary or impact is no longer true, then `topomark stamp <unit>`. On `NOT_LISTED` run
    `topomark draft <area>` and write the row. Commit the area file and `stamps.json` with the code.
@@ -73,12 +81,17 @@ Global flags go before or after the command: `--json`, `-C/--repo DIR`, `--confi
 
 | Command | What it answers |
 |---|---|
-| `outline <file> [--exported-only] [--kinds K,..] [--depth N]` | symbols with line ranges, kinds, signatures, doc summaries |
-| `symbol <file>#<Name>` or `symbol <Name> [--signature] [--context N]` | one symbol's source (`Outer.Inner` qualnames work) |
+| `outline <path>.. [--exported-only] [--kinds K,..] [--depth N] [--tokens N]` | symbols with line ranges, kinds, signatures, doc summaries; a directory or several files at once (top level, capped) |
+| `symbol <file>#<Name>` or `symbol <Name> [--signature] [--skeleton] [--context N]` | one symbol's source (`Outer.Inner` qualnames work); `--skeleton` elides member bodies |
 | `find <Name> [--kind K,..] [--exact] [--limit N]` | where a name is defined (substring, case-insensitive by default) |
+| `search <keywords> [--limit N] [--area A] [--tokens N]` | code by what it is about (names, signatures, docs, paths; a matching test leads to the code it uses) |
+| `locate "<message>" [--regex] [--limit N]`, `locate --trace [FILE]` | the code that printed a message, or each in-repo frame of a trace, innermost first |
 | `refs <Name> [--area A] [--no-tests] [--limit N]` | where a name is used (comments and strings excluded) |
-| `impact <Name or file> [--top N]` | callers, cross-area users, tests and docs a change reaches |
-| `tests-for [paths] [--diff] [--staged] [--since REV]` | tests covering the changed files, as runnable commands |
+| `impact <Name or file> [--top N]` | callers, importers, cross-area users, tests and docs a change reaches |
+| `brief <file or Name> [--tokens N]` | before an edit: area row, outline, most-coupled callers, tests and run command, within a budget (default 1500) |
+| `tests-for [paths] [--diff] [--staged] [--since REV] [--depth N]` | tests covering the changed files (through callers when no test names them), as runnable commands |
+| `syntax [paths] [--diff]` | do the edited files still parse (Python, JSON, TOML; brackets elsewhere); exit 1 on findings |
+| `changes [--staged] [--since REV] [--top N]` | symbols the diff touches, interface or body; references left to changed names; tests; rows to review |
 | `map [--focus PATH_OR_NAME ..] [--tokens N] [--area A]` | the most central files and their key signatures within a token budget |
 | `owner <path>` | which area owns a path, its unit, fan-in and stamp state |
 
@@ -86,7 +99,7 @@ Global flags go before or after the command: `--json`, `-C/--repo DIR`, `--confi
 
 | Command | What it does |
 |---|---|
-| `init [--dry-run] [--lang en\|zh-Hant] [--docs-dir DIR] [--force]` | detect the stack, propose areas, write the skeleton |
+| `init [--dry-run] [--docs-dir DIR] [--force]` | detect the stack, propose areas, write the skeleton |
 | `draft <area> [--write]` | rows the area file is missing, summary and fan-in prefilled |
 | `check [--area A] [--no-stamps]` | coverage, dead paths, ownership, line caps, fan-in, generated files, stamps (exit 1 on findings) |
 | `stale [--area A]` | rows needing review (exit 1) and body-only changes (advisory) |
@@ -96,14 +109,22 @@ Global flags go before or after the command: `--json`, `-C/--repo DIR`, `--confi
 | `sync` | rewrite the `fan-in P/T` numbers in area files |
 | `hook install\|uninstall\|status` | opt-in pre-commit gate running `check` |
 | `doctor`, `capabilities` | environment health; machine-readable command list |
+| `agent-hook session-start\|pre-read\|post-edit` | run by the Claude Code plugin's hooks, not by hand |
 
 ```bash
 topomark outline src/app/server.py --exported-only
 topomark symbol src/app/server.py#Server.start --context 3
+topomark symbol src/app/server.py#Server --skeleton
+topomark outline src/app/ --tokens 1200
 topomark find Router --exact
+topomark search cache directory --limit 5
+topomark locate "no such file: src/app.py"
 topomark refs Router --no-tests --limit 50
 topomark impact Router
+topomark brief src/app/server.py
+topomark syntax
 topomark tests-for --diff
+topomark changes --staged
 topomark map --focus src/app/server.py --tokens 1500
 topomark check --json
 ```
@@ -113,7 +134,7 @@ topomark check --json
 | Exit | Meaning | What to do |
 |---|---|---|
 | 0 | ok | |
-| 1 | findings (`check`, `stale`, `doctor`) | not an error: read the problems and fix them |
+| 1 | findings (`check`, `stale`, `doctor`, `syntax`) | not an error: read the problems and fix them |
 | 2 | usage, or a refused action (`REFUSED`) | read the message; it names the explicit flag |
 | 3 | `topomark.toml` is invalid | fix the key it names |
 | 4 | path, symbol or area not found | `find` / `owner` to locate it |
@@ -130,17 +151,21 @@ Branch on `error.code` and the exit code, never on English message text. Details
 
 | The situation | Read |
 |---|---|
-| Choosing between outline, symbol, find, refs, impact, map; every flag with examples | `reference/commands.md` |
+| Choosing between outline, symbol, find, search, locate, refs, impact, brief, tests-for, syntax, changes, map; every flag with examples | `reference/commands.md` |
 | Writing or fixing area-file rows; what `check` problem codes mean and how to clear each | `reference/code-map.md` |
-| Setting up topomark in a repo: `init`, reviewing the proposal, `draft`, first baseline | `reference/adoption.md` |
+| Setting up topomark in a repo: `init`, reviewing the proposal, `draft`, first baseline; the Claude Code hooks | `reference/adoption.md` |
 | Parsing `--json` output, exit codes, error envelopes | `reference/json-and-exit-codes.md` |
 
 ## Without slash commands
 
 Nothing here needs a slash command or a plugin runtime: every step is a shell command, so the same
-loop works in Claude Code, Codex, or any agent with a terminal. In a repo without a code map,
-`outline`, `symbol`, `find`, `refs`, `impact`, `tests-for` and `map` still work; only the code-map
-commands need `topomark init` first.
+loop works in Claude Code, Codex, or any agent with a terminal. In a repo without a code map, every
+navigation command still works (`brief` just has no area row); only the code-map commands need
+`topomark init` first.
+
+In Claude Code the plugin's hooks add short hints: the code map's areas at session start, `outline`
+before a Read of a large file, and a syntax report after an edit breaks a file. Codex and other
+agents have no hooks: run `topomark syntax --diff` after every edit yourself.
 
 ## Scope: what this skill does NOT do
 

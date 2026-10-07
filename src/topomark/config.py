@@ -31,12 +31,12 @@ DEFAULT_TEST_PATTERNS: tuple[str, ...] = (
 )
 
 _ALLOWED = {
-    "topomark": {"docs_dir", "lang", "l0_max", "l1_max", "min_name"},
+    "topomark": {"docs_dir", "l0_max", "l1_max", "min_name"},
     "files": {"required_roots", "required_ext", "every_file_roots", "exclude", "include_default_excludes",
               "keep_short_names", "mention_roots"},
     "tests": {"patterns", "runner"},
 }
-_RUNNER_KEYS = {"match", "command", "names", "join", "max_names", "fallback"}
+_RUNNER_KEYS = {"match", "command", "names", "join", "max_names", "fallback", "suite"}
 
 
 @dataclass
@@ -46,7 +46,8 @@ class TestRunner:
     ``match`` is a path prefix or glob. ``command`` may use ``{file}`` ``{files}``
     ``{class}`` ``{method}`` ``{names}``. ``names`` picks the granularity joined into
     ``{names}``: ``file``, ``class`` or ``method``; above ``max_names`` it falls back
-    to ``fallback`` (``class`` or ``file``)."""
+    to ``fallback`` (``class`` or ``file``). ``suite`` (optional) runs every test this
+    runner owns; it is printed when a changed file has no test to select."""
 
     match: str
     command: str
@@ -54,6 +55,7 @@ class TestRunner:
     join: str = " "
     max_names: int = 20
     fallback: str = "file"
+    suite: str = ""
 
 
 @dataclass
@@ -61,7 +63,6 @@ class Config:
     root: Path
     path: Path | None = None
     docs_dir: str = "docs/codemap"
-    lang: str = "en"
     l0_max: int = 160
     l1_max: int = 260
     min_name: int = 5
@@ -99,6 +100,10 @@ class Config:
     @classmethod
     def from_dict(cls, root: Path, raw: dict[str, Any], path: Path | None = None) -> "Config":
         where = path.name if path else CONFIG_FILE
+        top = raw.get("topomark", {})
+        if isinstance(top, dict) and "lang" in top:
+            raise TopomarkError("CONFIG", f"{where}: [topomark] lang was removed: topomark writes English only. "
+                                          "Delete the `lang = ...` line.")
         for section, keys in raw.items():
             if section not in _ALLOWED:
                 raise TopomarkError("CONFIG", f"{where}: unknown section [{section}]")
@@ -108,9 +113,7 @@ class Config:
                 if k not in _ALLOWED[section]:
                     raise TopomarkError("CONFIG", f"{where}: unknown key {section}.{k}")
         cfg = cls(root=root, path=path)
-        top = raw.get("topomark", {})
         cfg.docs_dir = _str(top, "docs_dir", cfg.docs_dir, where).strip("/")
-        cfg.lang = _str(top, "lang", cfg.lang, where)
         cfg.l0_max = _int(top, "l0_max", cfg.l0_max, where)
         cfg.l1_max = _int(top, "l1_max", cfg.l1_max, where)
         cfg.min_name = _int(top, "min_name", cfg.min_name, where)
@@ -139,9 +142,12 @@ class Config:
             unknown = set(r) - _RUNNER_KEYS
             if unknown:
                 raise TopomarkError("CONFIG", f"{where}: tests.runner[{i}] unknown keys {sorted(unknown)}")
+            if not isinstance(r.get("suite", ""), str):
+                raise TopomarkError("CONFIG", f"{where}: tests.runner[{i}] suite must be a string")
             runner = TestRunner(match=str(r["match"]), command=str(r["command"]),
                                 names=str(r.get("names", "file")), join=str(r.get("join", " ")),
-                                max_names=int(r.get("max_names", 20)), fallback=str(r.get("fallback", "file")))
+                                max_names=int(r.get("max_names", 20)), fallback=str(r.get("fallback", "file")),
+                                suite=r.get("suite", ""))
             if runner.names not in ("file", "class", "method") or runner.fallback not in ("file", "class"):
                 raise TopomarkError("CONFIG", f"{where}: tests.runner[{i}] names/fallback must be file|class|method")
             cfg.runners.append(runner)

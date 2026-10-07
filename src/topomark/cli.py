@@ -17,7 +17,6 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-import traceback
 from typing import NoReturn
 
 from . import __version__
@@ -149,6 +148,8 @@ def main(argv: list[str] | None = None) -> int:
         else:
             sys.stderr.write(f"error: INTERNAL: {message}\nhint: rerun with --debug for the traceback\n")
             if args.verbose:
+                import traceback  # not at the top: it costs every hook call ~20 ms of imports
+
                 traceback.print_exc()
         return EXIT["INTERNAL"]
 

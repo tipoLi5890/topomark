@@ -95,37 +95,20 @@ MAX_RULE_FILES = 25          # listed in L0
 MAX_AREA_RULE_FILES = 12     # listed in one area file
 
 TEXT = {
-    "en": {
-        "rules_head": "Rules and decisions live in these files; the code map links them instead of restating them:",
-        "rules_none": "No rule files (CLAUDE.md, AGENTS.md, ARCHITECTURE.md...) were found; link them here when "
-                      "they exist instead of restating their content in area files.",
-        "summary_todo": "TODO: one line on what this area owns",
-        "unit_file": "file",
-        "unit_dir": "unit",
-        "reading_none": "- <docs that explain this area, one line each>",
-        "rule_in_area": "rules for this area",
-        "more_rules": "- … {n} more rule files deeper in {scope}",
-        "other_title": "Other files",
-        "other_summary": "top-level files and small leftovers that belong to no other area",
-        "languages": "Languages (code files):",
-        "manifests": "Project manifests:",
-        "none": "(none)",
-    },
-    "zh-Hant": {
-        "rules_head": "規則與決策寫在這些檔案裡；code map 只連結、不重寫：",
-        "rules_none": "找不到規則檔（CLAUDE.md、AGENTS.md、ARCHITECTURE.md 等）；之後有了就連在這裡，不要把內容抄進區檔。",
-        "summary_todo": "待補：一行說明這一區管什麼",
-        "unit_file": "檔案",
-        "unit_dir": "單元",
-        "reading_none": "- <說明這一區的文件，一份一行>",
-        "rule_in_area": "這一區的規則",
-        "more_rules": "- 另有 {n} 份規則檔在 {scope} 更深的目錄",
-        "other_title": "其他檔案",
-        "other_summary": "repo 頂層的檔案與不屬於其他區的零星程式",
-        "languages": "語言（程式檔數）：",
-        "manifests": "專案資訊清單：",
-        "none": "（無）",
-    },
+    "rules_head": "Rules and decisions live in these files; the code map links them instead of restating them:",
+    "rules_none": "No rule files (CLAUDE.md, AGENTS.md, ARCHITECTURE.md...) were found; link them here when "
+                  "they exist instead of restating their content in area files.",
+    "summary_todo": "TODO: one line on what this area owns",
+    "unit_file": "file",
+    "unit_dir": "unit",
+    "reading_none": "- <docs that explain this area, one line each>",
+    "rule_in_area": "rules for this area",
+    "more_rules": "- … {n} more rule files deeper in {scope}",
+    "other_title": "Other files",
+    "other_summary": "top-level files and small leftovers that belong to no other area",
+    "languages": "Languages (code files):",
+    "manifests": "Project manifests:",
+    "none": "(none)",
 }
 
 
@@ -139,10 +122,9 @@ def register(sub, common) -> None:
             "examples:\n"
             "  topomark init --dry-run                  # the plan, nothing written\n"
             "  topomark init                            # write it (refuses to overwrite)\n"
-            "  topomark init --lang zh-Hant --docs-dir docs/map\n"
+            "  topomark init --docs-dir docs/map        # somewhere other than docs/codemap\n"
             "  topomark draft backend --write           # then fill each area's file table")
     p.add_argument("--dry-run", action="store_true", help="print the plan; write nothing")
-    p.add_argument("--lang", choices=["en", "zh-Hant"], help="document language (default: config, else en)")
     p.add_argument("--docs-dir", metavar="DIR", help="where the code map lives (default: config, else docs/codemap)")
     p.add_argument("--force", action="store_true", help="overwrite files that already exist")
     p.set_defaults(handler=run)
@@ -387,10 +369,10 @@ def readme_summary(ctx, d: str, files_all: set[str]) -> str:
 
 
 # --------------------------------------------------------------------------- rendering
-def template(lang: str, name: str) -> str:
+def template(name: str) -> str:
     from importlib import resources
 
-    return resources.files("topomark.templates").joinpath(lang, name).read_text(encoding="utf-8")
+    return resources.files("topomark.templates").joinpath(name).read_text(encoding="utf-8")
 
 
 def render(text: str, **values: str) -> str:
@@ -409,11 +391,11 @@ def frontmatter(p: Proposal) -> str:
     return "\n".join(lines) + "\n"
 
 
-def toml_config(docs_dir: str, lang: str, excludes: list[tuple[str, str]]) -> str:
+def toml_config(docs_dir: str, excludes: list[tuple[str, str]]) -> str:
     out = ["# topomark configuration (https://github.com/tipoLi5890/topomark).",
            "# Areas are not configured here: each area file's frontmatter (scope, granularity) is the",
            "# single source of truth. Every key is optional; see docs/config.md in the topomark repo.",
-           "", "[topomark]", f"docs_dir = {json.dumps(docs_dir)}", f"lang = {json.dumps(lang)}"]
+           "", "[topomark]", f"docs_dir = {json.dumps(docs_dir)}"]
     if excludes:
         out += ["", "[files]", "# Added to the built-in excludes (node_modules/, build/, dist/, *.min.js, ...).",
                 "exclude = ["]
@@ -423,7 +405,7 @@ def toml_config(docs_dir: str, lang: str, excludes: list[tuple[str, str]]) -> st
 
 
 # --------------------------------------------------------------------------- the command
-def build_plan(ctx, lang: str, docs_dir: str) -> dict:
+def build_plan(ctx, docs_dir: str) -> dict:
     from ..config import Config
     from ..docs import is_required, owner_of, Area
     from ..repo import matches_any
@@ -469,7 +451,7 @@ def build_plan(ctx, lang: str, docs_dir: str) -> dict:
     planner.run()
     props = planner.proposals()
     name_areas(props)
-    T = TEXT[lang]
+    T = TEXT
     for p in props:
         choose_granularity(p)
         if p.path:
@@ -492,19 +474,19 @@ def build_plan(ctx, lang: str, docs_dir: str) -> dict:
             "rules": rules, "props": props, "unowned": unowned, "conflicts": conflicts}
 
 
-def render_docs(plan: dict, lang: str, docs_dir: str, cfg) -> dict[str, str]:
+def render_docs(plan: dict, docs_dir: str, cfg) -> dict[str, str]:
     """Render every file; shorten L0's lists until it fits `l0_max` (it never starts over its cap)."""
     out: dict[str, str] = {}
     for caps in ((MAX_RULE_FILES, 20, 12), (12, 8, 8), (6, 4, 5), (3, 0, 3)):
-        out = _render_docs(plan, lang, docs_dir, cfg, *caps)
+        out = _render_docs(plan, docs_dir, cfg, *caps)
         if out[f"{docs_dir}/README.md"].count("\n") <= cfg.l0_max:
             break
     return out
 
 
-def _render_docs(plan: dict, lang: str, docs_dir: str, cfg, max_rules: int, max_manifests: int,
+def _render_docs(plan: dict, docs_dir: str, cfg, max_rules: int, max_manifests: int,
                  max_langs: int) -> dict[str, str]:
-    T = TEXT[lang]
+    T = TEXT
     props: list[Proposal] = plan["props"]
     rules: list[str] = plan["l0_rules"]
     out: dict[str, str] = {}
@@ -528,10 +510,10 @@ def _render_docs(plan: dict, lang: str, docs_dir: str, cfg, max_rules: int, max_
     if len(mans) > max_manifests:
         stack.append(f"- … {len(mans) - max_manifests}")
     values = {"docs_dir": docs_dir, "l0_max": str(cfg.l0_max), "l1_max": str(cfg.l1_max)}
-    out[f"{docs_dir}/README.md"] = render(template(lang, "L0.md"), rule_sources=rule_text,
+    out[f"{docs_dir}/README.md"] = render(template("L0.md"), rule_sources=rule_text,
                                           areas_table="\n".join(rows), stack="\n".join(stack), **values)
-    out[f"{docs_dir}/_TEMPLATE.md"] = render(template(lang, "_TEMPLATE.md"), **values)
-    area_t = template(lang, "area.md")
+    out[f"{docs_dir}/_TEMPLATE.md"] = render(template("_TEMPLATE.md"), **values)
+    area_t = template("area.md")
     for p in props:
         reading = "\n".join(f"- `{r}`: {T['rule_in_area']}" for r in p.rules) or T["reading_none"]
         if p.more_rules:
@@ -549,17 +531,16 @@ def run(args, ctx) -> Result:
     from ..repo import write_text
 
     cfg = ctx.config
-    lang = args.lang or (cfg.lang if cfg.lang in TEXT else "en")
     docs_dir = (args.docs_dir or cfg.docs_dir).strip("/").replace("\\", "/")
-    plan = build_plan(ctx, lang, docs_dir)
-    writes = {CONFIG_FILE: toml_config(docs_dir, lang, plan["excludes"])}
-    writes.update(render_docs(plan, lang, docs_dir, cfg))
+    plan = build_plan(ctx, docs_dir)
+    writes = {CONFIG_FILE: toml_config(docs_dir, plan["excludes"])}
+    writes.update(render_docs(plan, docs_dir, cfg))
     existing = [p for p in writes if (ctx.root / p).exists()]
     l0_lines = writes[f"{docs_dir}/README.md"].count("\n")
     props: list[Proposal] = plan["props"]
 
     data = {
-        "dry_run": bool(args.dry_run), "root": str(ctx.root), "lang": lang, "docs_dir": docs_dir,
+        "dry_run": bool(args.dry_run), "root": str(ctx.root), "lang": "en", "docs_dir": docs_dir,
         "stack": {"languages": dict(plan["langs"].most_common()), "manifests": plan["manifests"]},
         "rule_files": plan["rules"], "rule_files_l0": plan["l0_rules"], "excludes": [{"pattern": p, "reason": w} for p, w in plan["excludes"]],
         "areas": [p.to_json(docs_dir) for p in props], "required_files": len(plan["required"]),
@@ -596,11 +577,15 @@ def run(args, ctx) -> Result:
 
     if args.dry_run:
         lines.append("dry run: nothing was written. Edit the plan by hand after `topomark init`, or rerun "
-                     "with --lang/--docs-dir.")
+                     "with --docs-dir.")
         return Result(data, "\n".join(lines))
     if existing and not args.force:
         raise TopomarkError("REFUSED", "these files exist, nothing was written: " + ", ".join(existing)
                             + " (add --force to overwrite them)")
+    # An existing topomark.toml is hand-tuned (test runners, excludes): --force never replaces it.
+    if CONFIG_FILE in writes and (ctx.root / CONFIG_FILE).is_file():
+        writes = {k: v for k, v in writes.items() if k != CONFIG_FILE}
+        lines.append(f"kept the existing {CONFIG_FILE} (init never overwrites it; edit it by hand)")
     for path, text in writes.items():
         write_text(ctx.root, path, text)
     data["written"] = list(writes)

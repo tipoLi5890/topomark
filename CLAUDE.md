@@ -3,6 +3,9 @@
 Guidance for agents working **on** topomark itself. (Agents *using* topomark in another repo: read
 `skills/topomark/SKILL.md`.)
 
+Read `docs/codemap/README.md` first (topomark's own code map); after an interface change run
+`topomark diff <unit>`, update its row, then `topomark stamp <unit>`.
+
 ## Commands
 
 ```bash
@@ -33,15 +36,18 @@ ruff and mypy run in CI only (`pip install ruff mypy` there); their settings are
   `sys.exit` from a handler.
 - **Read-only on target repos** except the files a command owns: `init` (topomark.toml and
   `docs_dir`), `draft --write`, `gen`, `sync`, `stamp` (`docs_dir`), `hook` (`.git/hooks`).
-  `init --dry-run` writes nothing, anywhere. The analysis cache lives in the user cache directory.
+  `init --dry-run` writes nothing, anywhere. `stamp`, `stale` and `diff` also store the reviewed
+  blobs as git objects (`git hash-object -w`), never as files. The analysis cache lives in the user
+  cache directory.
 - **Files come from git**, secrets are never read (`repo.SECRET_PATTERNS`, not configurable).
 - **One module per command** in `src/topomark/commands/`, listed in `commands._NAMES`, exposing
   `register(sub, common)` and `run(args, ctx) -> Result`. Heavy imports go inside `run` so `--help`
   stays fast. `capabilities` reads the live parser, so a command can't exist undescribed.
 - **Docs are executable.** Every `topomark ...` line in a ```bash block of README.md, docs/,
   skills/ and the templates must parse with the real parser (`tests/test_meta.py`).
-- **zh-Hant text** (templates, `.github/README.zh-Hant.md`) uses Taiwan usage and full-width
-  punctuation, and never a dash (— or ——).
+- **English output only.** Templates, generated reports and drafted rows are English; the only
+  formats parsed are `fan-in P/T` and `` `dir/` (N files) ``. The one zh-Hant text,
+  `.github/README.zh-Hant.md`, uses Taiwan usage and full-width punctuation, and never a dash (— or ——).
 
 ## Adding a command
 
@@ -72,6 +78,6 @@ ruff and mypy run in CI only (`pip install ruff mypy` there); their settings are
 | `src/topomark/docs.py` | area frontmatter, ownership, units |
 | `src/topomark/stamps.py` | review stamps |
 | `src/topomark/navigate.py` | shared engine for the navigation commands |
-| `src/topomark/templates/{en,zh-Hant}/` | `init` templates (package data) |
+| `src/topomark/templates/` | `init` templates (package data) |
 | `skills/topomark/` | the agent skill |
 | `tools/` | release and lint helpers (stdlib only) |

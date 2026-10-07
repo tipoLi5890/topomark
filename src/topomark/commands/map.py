@@ -50,8 +50,9 @@ def _render(nav, chosen: dict[str, list], order: list[str]) -> str:
 
 
 def run(args, ctx) -> Result:
-    from ..contract import estimate_tokens
-    from ..navigate import Nav, name_weight, pagerank_files
+    import heapq
+
+    from ..navigate import Nav, estimate_tokens, name_weight, name_weight_bound, outline_size, pagerank_files
 
     nav = Nav(ctx)
     nav.check_area(args.area)
@@ -77,9 +78,16 @@ def run(args, ctx) -> Result:
     ranks = pagerank_files(nav, focus_files, candidates, focus_names)
     files = sorted((p for p in ranks if p in candidates or p in focus_files),
                    key=lambda p: (-ranks[p], p))
-    files = [p for p in files if any(s.kind != "namespace" for s in infos[p].symbols)]
+    files = [p for p in files if outline_size(infos[p])]
+    budget = max(1, args.tokens)
+    # At most `budget` pairs are ever shown. Files come in rank order, so once a file's best
+    # possible weight is below the budget-th weight kept so far, no later symbol can make it.
+    bound = name_weight_bound(nav) * (10 if focus_names else 1)
+    top: list[float] = []  # min-heap of the `budget` largest weights
     pairs = []
     for p in files:
+        if len(top) >= budget and ranks[p] * bound < top[0]:
+            break
         for s in infos[p].symbols:
             if s.kind == "namespace":
                 continue
@@ -87,8 +95,11 @@ def run(args, ctx) -> Result:
             if s.name in focus_names:
                 w *= 10
             pairs.append((w, p, s))
+            if len(top) < budget:
+                heapq.heappush(top, w)
+            elif w > top[0]:
+                heapq.heapreplace(top, w)
     pairs.sort(key=lambda x: (-x[0], x[1], x[2].start))
-    budget = max(1, args.tokens)
 
     def build(n: int):
         chosen: dict[str, list] = {}

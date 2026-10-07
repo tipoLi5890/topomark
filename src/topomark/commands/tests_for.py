@@ -10,22 +10,30 @@ def register(sub, common) -> None:
     p = add(sub, common, "tests-for", "the tests that cover changed files, as runnable commands",
             "Changed files (the paths given, else `git diff HEAD` plus untracked files) → the names\n"
             "they declare → test files that mention those names → the test methods whose bodies use\n"
-            "them. Changed test files are selected as a whole. Commands come from [[tests.runner]] in\n"
+            "them. Changed test files are selected as a whole. A file no test mentions is followed to\n"
+            "its callers, up to --depth hops (import statements, transitively; name references, one\n"
+            "hop), and their tests are selected `via` them; more than 30 callers, or nothing found,\n"
+            "points to the runner's `suite` command. Commands come from [[tests.runner]] in\n"
             "topomark.toml ({file} {files} {class} {method} {names}); `names` = file|class|method,\n"
             "above `max_names` it falls back to `fallback`.",
             "examples:\n  topomark tests-for                  # working tree vs HEAD\n"
-            "  topomark tests-for --staged\n  topomark tests-for --since main\n  topomark tests-for src/core/router.py")
+            "  topomark tests-for --staged\n  topomark tests-for --since main\n  topomark tests-for src/core/router.py\n"
+            "  topomark tests-for src/core/util.py --depth 3")
     p.add_argument("paths", nargs="*", help="files to treat as changed (default: --diff)")
     p.add_argument("--diff", action="store_true", help="working tree vs HEAD, untracked included (default)")
     p.add_argument("--staged", action="store_true", help="only staged changes")
     p.add_argument("--since", metavar="REV", help="changes since REV (working tree vs REV)")
+    p.add_argument("--depth", type=int, default=2, metavar="N",
+                   help="caller hops to follow for files no test mentions (default 2; 0 = names only)")
     p.set_defaults(handler=run)
 
 
 def run(args, ctx) -> Result:
     from ..errors import TopomarkError
-    from ..navigate import Nav, changed_files, pick_tests, render_runner, runner_for, whole_test_file
+    from ..navigate import MAX_CALLERS, Nav, changed_files, runner_commands, select_tests
 
+    if args.depth < 0:
+        raise TopomarkError("USAGE", "--depth must be 0 or more")
     nav = Nav(ctx)
     if args.paths:
         changed = [rel(ctx, p) for p in args.paths]
@@ -40,59 +48,16 @@ def run(args, ctx) -> Result:
     present = [p for p in changed if nav.exists(p) and p in nav.infos]
     ignored = [p for p in changed if nav.exists(p) and p not in nav.infos]
 
-    picks: dict[str, object] = {}
-    names_of: dict[str, list[str]] = {}
-    uncovered: list[str] = []
-    test_paths = [p for p in nav.infos if nav.is_test(p)]
-    for p in present:
-        if nav.is_test(p):
-            picks[p] = whole_test_file(nav, p, "changed test file")
-            continue
-        if not nav.is_code(p):
-            continue
-        names = nav.decl_names(p)
-        names_of[p] = names
-        covered = False
-        if names:
-            wanted = set(names)
-            for t in test_paths:
-                if t == p or not (wanted & nav.infos[t].idents):
-                    continue
-                pk = pick_tests(nav, t, names)
-                if pk is None:
-                    continue
-                covered = True
-                if t in picks:
-                    old = picks[t]
-                    if not getattr(old, "whole_file", False) and old.reason != "changed test file":
-                        for m in pk.methods:
-                            if m not in old.methods:
-                                old.methods.append(m)
-                        old.classes = sorted(set(old.classes) | set(pk.classes))
-                        old.names = sorted(set(old.names) | set(pk.names))
-                else:
-                    picks[t] = pk
-        if not covered:
-            uncovered.append(p)
+    sel = select_tests(nav, present, args.depth)
+    ordered = sel.ordered()
+    runners = ctx.config.runners
+    commands, unmatched = runner_commands(runners, ordered)
+    suite = list(dict.fromkeys(r.suite for r in runners if r.suite)) if sel.uncovered else []
 
-    ordered = [picks[k] for k in sorted(picks)]
-    groups: dict[int, list] = {}
-    unmatched = []
-    for pk in ordered:
-        r = runner_for(pk.path, ctx.config.runners)
-        if r is None:
-            unmatched.append(pk)
-        else:
-            groups.setdefault(ctx.config.runners.index(r), []).append(pk)
-    commands = []
-    for idx in sorted(groups):
-        r = ctx.config.runners[idx]
-        cmds, gran = render_runner(r, groups[idx])
-        commands.append({"runner": r.match, "names": gran, "files": [pk.path for pk in groups[idx]], "commands": cmds})
-
-    data = {"source": source, "changed": changed, "deleted": gone, "ignored": ignored, "declared": names_of,
-            "tests": [pk.to_json() for pk in ordered], "commands": commands,
-            "unmatched": [pk.path for pk in unmatched], "uncovered": uncovered}
+    data = {"source": source, "changed": changed, "deleted": gone, "ignored": ignored, "declared": sel.names_of,
+            "depth": sel.depth, "tests": [pk.to_json() for pk in ordered], "commands": commands,
+            "unmatched": [pk.path for pk in unmatched], "uncovered": sel.uncovered, "limited": sel.limited,
+            "dynamic_loaders": sel.dynamic_loaders, "suite_commands": suite}
     lines = [f"changed ({source}): {len(changed)} files" + (f", {len(gone)} deleted" if gone else "")]
     for pk in ordered:
         what = ("whole file" if pk.whole_file else
@@ -107,7 +72,17 @@ def run(args, ctx) -> Result:
     if unmatched:
         lines.append("\nno [[tests.runner]] matches these test files (add one to topomark.toml):")
         lines += [f"  {pk.path}" for pk in unmatched]
-    if uncovered:
-        lines.append("\nno test mentions these changed files:")
-        lines += [f"  {p}" for p in uncovered]
+    if sel.uncovered:
+        hops = f", nor their callers within {sel.depth} hop{'s' if sel.depth > 1 else ''}" if sel.depth else ""
+        lines.append(f"\nno test mentions these changed files{hops}:")
+        lines += [f"  {p}" + (f"  (over {MAX_CALLERS} callers: too central to pick by name)" if p in sel.limited else "")
+                  for p in sel.uncovered]
+        if sel.dynamic_loaders:
+            shown = ", ".join(sel.dynamic_loaders[:5]) + (" …" if len(sel.dynamic_loaders) > 5 else "")
+            lines.append(f"may miss tests: modules are also loaded by computed names in {shown}")
+        if suite:
+            lines.append("run the whole suite:")
+            lines += [f"  {cmd}" for cmd in suite]
+        elif runners:
+            lines.append("run the whole suite (add `suite = \"...\"` to a [[tests.runner]] to print it here)")
     return Result(data, "\n".join(lines))

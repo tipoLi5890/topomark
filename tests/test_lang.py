@@ -517,5 +517,60 @@ class Edges(unittest.TestCase):
         self.assertLess(time.perf_counter() - t0, 1.5)  # ~0.2 s on a laptop; generous for CI
 
 
+class Imports(unittest.TestCase):
+    """``FileInfo.imports``: specifiers as written, never part of the review surface."""
+
+    def test_python(self) -> None:
+        text = (
+            '"""Doc that says: from fake import nothing."""\n'
+            "from __future__ import annotations\n\n"
+            "import os, sys as system\n"
+            "import a.b.c as abc\n"
+            "from . import Result, other as o\n"
+            "from .. import docs as D\n"
+            "from .lang.base import (\n    FileInfo,  # why\n    Symbol,\n)\n"
+            "from pkg.mod import *\n"
+            's = "import notreal"\n\n'
+            "def run(name):\n"
+            "    from ..navigate import Nav\n"
+            '    importlib.import_module("plugins.static")\n'
+            '    return importlib.import_module(f"plugins.{name}")\n\n'
+            "def import_module(x):\n    pass\n")
+        info = analyze("src/pkg/cmd/x.py", text)
+        self.assertEqual(info.imports, ["os", "sys", "a.b.c", ".", ".Result", ".other", "..", "..docs",
+                                        ".lang.base", ".lang.base.FileInfo", ".lang.base.Symbol", "pkg.mod",
+                                        "..navigate", "..navigate.Nav", "plugins.static", "<dynamic>"])
+
+    def test_js_ts(self) -> None:
+        text = (
+            '// header: import x from "nope"\n'
+            'import React from "react";\n'
+            "import { a,\n  b } from './x.js';\n"
+            'import type { T } from "../types";\n'
+            'import "./side-effect.css";\n'
+            'export * from "./top";\n'
+            "export { c } from './c'\n"
+            'const fs = require("fs");\n'
+            'const lazy = () => import("./lazy");\n'
+            "const page = (n) => import(`./pages/${n}`);\n"
+            "const s = \"import { z } from 'zzz'\";\n"
+            'const arr = Array.from("abc");\n'
+            "console.log(import.meta.url);\n")
+        info = analyze("web/app.ts", text)
+        self.assertEqual(info.imports, ["react", "./x.js", "../types", "./side-effect.css", "./top", "./c", "fs",
+                                        "./lazy", "<dynamic>"])
+
+    def test_imports_do_not_change_the_surface(self) -> None:
+        cases = [("m.py", "def f():\n    return 1\n", "import os\nfrom .y import z\n\ndef f():\n    return 1\n"),
+                 ("m.ts", "export function f() { return 1; }\n",
+                  'import { a } from "./a";\nexport function f() { return 1; }\nconst l = () => import("./l");\n')]
+        for path, plain, with_imports in cases:
+            with self.subTest(path=path):
+                a, b = analyze(path, plain), analyze(path, with_imports)
+                self.assertEqual(a.surface, b.surface)
+                self.assertEqual(a.imports, [])
+                self.assertTrue(b.imports)
+
+
 if __name__ == "__main__":
     unittest.main()

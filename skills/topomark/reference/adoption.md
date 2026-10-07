@@ -27,7 +27,7 @@ topomark init --dry-run --json
 
 ```bash
 topomark init
-topomark init --lang zh-Hant --docs-dir docs/map
+topomark init --docs-dir docs/map
 ```
 
 It writes `topomark.toml`, `<docs_dir>/README.md`, `<docs_dir>/_TEMPLATE.md` and one file per area,
@@ -58,6 +58,29 @@ topomark hook install
 `stamp --baseline` records every unit as reviewed; run it once, after the rows were actually read.
 From then on `check` fails when a unit's interface changes without its row being reviewed. The hook
 is opt-in, per clone, and keeps an existing pre-commit hook as `pre-commit.local`.
+
+## Claude Code plugin hooks
+
+Installed as a Claude Code plugin, topomark also registers three hooks in `hooks/hooks.json`. Each
+runs `"${CLAUDE_PLUGIN_ROOT}"/bin/topomark agent-hook <action>` with a 5-second timeout (the hook
+`timeout` is in seconds) and only adds context for the agent:
+
+| Event (matcher) | Action | What the agent sees |
+|---|---|---|
+| SessionStart (`startup`, `clear`, `compact`) | `session-start` | the L0 path, each area's name and file, one line of navigation commands and whether review stamps exist; at most 40 lines and 4 KB, no L0 prose. Without a code map, one line suggesting `topomark map --tokens 2000` |
+| PreToolUse (`Read`) | `pre-read` | a file over 400 lines: outline it first, then `symbol --skeleton` or a ranged read; the first file read in an area: its area file. Each hint once per session. Nothing for a ranged read (`offset`/`limit`) or a file without a language adapter, outside the repo, secret-looking or excluded |
+| PostToolUse (`Edit`, `Write`, `MultiEdit`) | `post-edit` | the `syntax` check of the edited file, only when it no longer parses and its HEAD version did |
+
+The hooks never block a tool call and never answer a permission prompt: they print nothing or one
+`{"hookSpecificOutput": {"hookEventName", "additionalContext"}}` object and exit 0 whatever happens
+(outside a git repo or with a broken payload they stay silent; an invalid `topomark.toml` gets one
+line at session start pointing at `topomark doctor`). This output follows the hook protocol, not the `--json` envelope. The hints already given are remembered
+per session as marker files in the user cache directory (`agent-hook/` beside the analysis cache);
+after `/clear` or a compaction a hint can come once more. Try one by hand with
+`echo '{"cwd": "."}' | topomark agent-hook session-start`.
+
+Codex and other agents have no such hooks: the skill tells them to run `topomark syntax --diff`
+after every edit.
 
 ## Repos that already have a hand-written map
 

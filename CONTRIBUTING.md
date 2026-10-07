@@ -41,6 +41,19 @@ mypy
       `python3 tools/lint_skills.py` pass.
 - [ ] `CHANGELOG.md` has an entry under `[Unreleased]`.
 
+## Measuring navigation changes
+
+Changes to ranking, output size or speed are judged by numbers:
+
+```bash
+python3 tools/eval_nav.py                  # gold rank, hit@1/hit@5, tokens, time per task in tools/eval/tasks.toml
+python3 tools/eval_nav.py --compare main   # the same tasks with topomark's src/ from another rev
+python3 tools/bench_nav.py --runs 3        # warm timings on a generated 3,000-file repo (tools/synth_repo.py)
+```
+
+Write eval tasks the way an agent would ask, before tuning anything, and never tune a query to
+the tool: when a gold answer moves with the code, update the gold only.
+
 ## Language adapters
 
 An adapter turns `(path, text)` into a `FileInfo` (`src/topomark/lang/base.py`). Keep it lexical:

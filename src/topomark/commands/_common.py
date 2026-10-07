@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import argparse
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from ..workspace import Problem
+if TYPE_CHECKING:  # importing workspace pulls in the index and hashlib: too slow for --help and hooks
+    from ..workspace import Problem
 
 
 def add(sub: Any, common: argparse.ArgumentParser, name: str, help_text: str, description: str = "",
@@ -20,14 +21,35 @@ def format_problems(problems: list[Problem]) -> str:
 
 
 def rel(ctx: Any, raw: str) -> str:
-    """A user-supplied path → repo-relative POSIX path (accepts absolute, ./x, or repo-relative)."""
+    """A user-supplied path → repo-relative POSIX path.
+
+    An absolute path, or a relative one that exists from the current directory, is resolved
+    and must lie inside the repository. Any other relative path is taken as repo-relative
+    (what ``-C`` callers mean): ``./`` prefixes and ``a/../b`` are normalised, a trailing ``/``
+    is kept. A path that leads out of the repository is NOT_FOUND."""
     import os
+    import posixpath
     from pathlib import Path
+
+    from ..errors import TopomarkError
+
+    def outside() -> TopomarkError:
+        return TopomarkError("NOT_FOUND", f"{raw} is outside the repository ({ctx.root})")
 
     p = Path(raw)
     if p.is_absolute() or os.path.exists(raw):
         try:
             return Path(os.path.abspath(raw)).resolve().relative_to(ctx.root.resolve()).as_posix()
         except ValueError:
-            return raw.replace("\\", "/")
-    return raw.replace("\\", "/").lstrip("./") if raw.startswith("./") else raw.replace("\\", "/")
+            if p.is_absolute():
+                raise outside() from None
+            # outside when read from the current directory: maybe repo-relative (with -C)
+    s = raw.replace("\\", "/")
+    while s.startswith("./"):
+        s = s[2:]
+    if not s:
+        return s
+    norm = posixpath.normpath(s)
+    if norm == ".." or norm.startswith(("../", "/")):
+        raise outside()
+    return norm + "/" if s.endswith("/") and norm != "." else norm

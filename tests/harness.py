@@ -1,8 +1,8 @@
 """Shared test helpers: run the CLI in-process, build throwaway git repos.
 
-Every test run gets its own cache directory (``TOPOMARK_CACHE``) so tests never
-touch the user's cache, and repos are created under a temporary directory with a
-local git identity.
+Every test run gets its own cache directory (``TOPOMARK_CACHE``, always set, even when
+the developer's shell exports one) so tests never touch the user's cache, and repos are
+created under a temporary directory with a local git identity.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ SRC = Path(__file__).resolve().parents[1] / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-os.environ.setdefault("TOPOMARK_CACHE", tempfile.mkdtemp(prefix="topomark-test-cache-"))
+os.environ["TOPOMARK_CACHE"] = tempfile.mkdtemp(prefix="topomark-test-cache-")
 
 from topomark.cli import main  # noqa: E402
 
@@ -49,7 +49,11 @@ class TempRepo:
     def __init__(self, files: dict[str, str] | None = None, commit: bool = True) -> None:
         self._tmp = tempfile.TemporaryDirectory(prefix="topomark-repo-")
         self.root = Path(self._tmp.name).resolve()
-        self.git("init", "-q", "-b", "main")
+        self.git("init", "-q")
+        self.git("symbolic-ref", "HEAD", "refs/heads/main")  # `init -b` needs git 2.28
+        # a global core.hooksPath (the developer's own hooks) must not apply to throwaway repos;
+        # pin the repo's own hooks dir, which `hook install` tests write into
+        self.git("config", "core.hooksPath", str(self.root / ".git" / "hooks"))
         self.git("config", "user.name", "Test")
         self.git("config", "user.email", "test@example.invalid")
         self.git("config", "commit.gpgsign", "false")
@@ -75,7 +79,7 @@ class TempRepo:
 
     def commit(self, message: str = "commit") -> None:
         self.git("add", "-A")
-        self.git("commit", "-q", "-m", message, "--allow-empty")
+        self.git("commit", "-q", "--no-verify", "-m", message, "--allow-empty")
 
     def cli(self, *argv: str) -> tuple[int, str, str]:
         return run_cli(["-C", str(self.root), *argv])

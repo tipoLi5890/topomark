@@ -3,7 +3,7 @@
 Exit codes are part of the public contract (agents and hooks branch on them):
 
     0 OK          the command ran and found nothing to report
-    1 FINDINGS    check/stale found problems (not an error: the tool worked)
+    1 FINDINGS    check/stale/doctor/syntax found problems (not an error: the tool worked)
     2 USAGE       bad flags or arguments
     3 CONFIG      topomark.toml is missing a required field or is malformed
     4 NOT_FOUND   a path, symbol or area does not exist

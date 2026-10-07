@@ -25,29 +25,54 @@ class FanIn:
     test: set[str]
 
 
+def partial_names(info: FileInfo) -> list[str]:
+    """Top-level declarations marked ``partial`` (C#): spread over files on purpose."""
+    cached = getattr(info, "partial_names", None)  # index.CachedInfo knows without decoding symbols
+    if cached is not None:
+        return cached
+    return [s.name for s in info.symbols if not s.container and " partial " in f" {s.signature} "]
+
+
+def build_tables(cfg: Config, infos: dict[str, FileInfo]) -> dict:
+    """The graph's tables as plain lists (cacheable; see ``Index.derived``)."""
+    tests = {p for p in infos if is_test(p, cfg)}
+    declared: dict[str, set[str]] = defaultdict(set)
+    partial: set[str] = set()
+    for p, info in infos.items():
+        if p in tests:
+            continue
+        for name in info.types:
+            declared[name].add(p)
+        partial.update(partial_names(info))
+    short = {n for n in declared if len(n) < cfg.min_name and n not in cfg.keep_short_names}
+    ambiguous = {n for n, fs in declared.items() if len(fs) > 1 and n not in partial}
+    usable = {n for n in declared if n not in short and n not in ambiguous}
+    ident_files: dict[str, list[str]] = defaultdict(list)
+    for p, info in infos.items():
+        for ident in info.idents & usable:
+            ident_files[ident].append(p)
+    return {"tests": sorted(tests), "declared": {n: sorted(fs) for n, fs in declared.items()},
+            "short": sorted(short), "ambiguous": sorted(ambiguous), "usable": sorted(usable),
+            "ident_files": dict(ident_files)}
+
+
+def tables_key(cfg: Config) -> str:
+    """The config inputs ``build_tables`` depends on, for the cache digest."""
+    return repr((cfg.min_name, sorted(cfg.keep_short_names), list(cfg.test_patterns)))
+
+
 class Graph:
-    def __init__(self, cfg: Config, infos: dict[str, FileInfo], areas: list[Area]) -> None:
+    def __init__(self, cfg: Config, infos: dict[str, FileInfo], areas: list[Area], tables: dict | None = None) -> None:
         self.cfg = cfg
         self.infos = infos
         self.areas = areas
-        self.tests = {p for p in infos if is_test(p, cfg)}
-        self.declared: dict[str, set[str]] = defaultdict(set)
-        partial: set[str] = set()
-        for p, info in infos.items():
-            if p in self.tests:
-                continue
-            for name in info.types:
-                self.declared[name].add(p)
-            for s in info.symbols:
-                if not s.container and " partial " in f" {s.signature} ":
-                    partial.add(s.name)
-        self.short = {n for n in self.declared if len(n) < cfg.min_name and n not in cfg.keep_short_names}
-        self.ambiguous = {n for n, fs in self.declared.items() if len(fs) > 1 and n not in partial}
-        self.usable = {n for n in self.declared if n not in self.short and n not in self.ambiguous}
-        self.ident_files: dict[str, set[str]] = defaultdict(set)
-        for p, info in infos.items():
-            for ident in info.idents & self.usable:
-                self.ident_files[ident].add(p)
+        t = tables if tables is not None else build_tables(cfg, infos)
+        self.tests = set(t["tests"])
+        self.declared: dict[str, set[str]] = defaultdict(set, {n: set(fs) for n, fs in t["declared"].items()})
+        self.short = set(t["short"])
+        self.ambiguous = set(t["ambiguous"])
+        self.usable = set(t["usable"])
+        self.ident_files: dict[str, set[str]] = defaultdict(set, {n: set(fs) for n, fs in t["ident_files"].items()})
         self._fanin: dict[str, FanIn] = {}
 
     def names_of(self, path: str) -> set[str]:

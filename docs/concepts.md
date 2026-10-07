@@ -8,7 +8,7 @@ An agent (or a new colleague) should read only as deep as the task needs:
 |---|---|---|
 | **L0** | `<docs_dir>/README.md`: the area table, "to change X, read this first", the highest-impact files, coupling between areas, links to the repo's rule files | `l0_max` lines (160) |
 | **L1** | `<docs_dir>/<area>.md`: one row per unit (file or directory) with a one-line summary and its impact, plus data flow, change checklist and pitfalls | `l1_max` lines (260) each |
-| **L2** | the code, read by symbol: `outline`, `symbol`, `refs`, `impact` | as little as possible |
+| **L2** | the code, read by symbol: `outline`, `symbol`, `search`, `refs`, `impact`, `brief` | as little as possible |
 
 The code map links the repo's existing rule files (CLAUDE.md, AGENTS.md, ADRs, architecture docs)
 instead of restating them. A summary that copies a design reason goes stale twice as fast as one
@@ -34,8 +34,8 @@ scope:
   is an `OWNER_CONFLICT`.
 - **Units:** with `granularity: file` every required file is a unit and needs its own row. With
   `granularity: dir` the unit is the file's directory truncated to `depth` levels below the scope
-  root, written `` `path/` ``. A count right after the backticks (`` `path/` (12 files) `` or
-  `` `path/`（12 檔） ``) is verified by `check`.
+  root, written `` `path/` ``. A count right after the backticks (`` `path/` (12 files) ``) is
+  verified by `check`.
 - **Required files:** code files (by extension) outside `docs_dir`, after excludes; see
   [config.md](config.md).
 
@@ -73,12 +73,20 @@ says what to update. `topomark sync` rewrites the numbers in area files, `topoma
 `_generated/fanin.md` (and `_generated/modules.md`, the module graph from `.asmdef` and
 `package.json` manifests).
 
+Import statements are a second, separate signal: `impact <file>` lists the files whose Python or
+JS/TS imports resolve to it, and `tests-for` follows them to the tests of a file that no test
+mentions. They never count toward fan-in or the cross-area edge stamps, so the numbers already
+written in area files do not move.
+
 ## Navigation without a code map
 
-`outline`, `symbol`, `find`, `refs`, `impact`, `tests-for` and `map` work in any git repo. They parse
-files with built-in language adapters (C#, Java, JavaScript/TypeScript, Python, shell, SQL, data
-files, Markdown) and fall back to plain text. Results are cached per file, keyed by modification
-time and size, in the user's cache directory, never in the repository.
+`outline`, `symbol`, `find`, `search`, `locate`, `refs`, `impact`, `brief`, `tests-for`, `syntax`,
+`changes` and `map` work in any git repo. They parse files with built-in language adapters: Python,
+JavaScript and TypeScript (JSX and TSX included), C#, Java, Kotlin, Swift, Dart, Go, Rust, C, C++ and
+Objective-C, shell, SQL, data files (JSON, JSONC, JSON5, TOML, YAML, Unity `.asmdef`) and Markdown. A file without an adapter that `required_ext` or
+`every_file_roots` still asks for is read as plain text: no symbols, the whole text is the surface.
+Results are cached per file, keyed by modification time and size, in the user's cache directory,
+never in the repository.
 
 ## What topomark writes
 
@@ -90,4 +98,7 @@ time and size, in the user's cache directory, never in the repository.
 | `sync` | the fan-in numbers in area files |
 | `stamp` | `<docs_dir>/stamps.json` (and stores reviewed blobs in the git object store) |
 | `hook install` | `.git/hooks/pre-commit` (an existing hook is kept as `pre-commit.local`) |
-| everything else | nothing |
+| everything else | nothing in the repository |
+
+Outside the repository, every command may write to the user cache directory: the analysis cache,
+and for `agent-hook` the markers that keep each plugin-hook hint to once per session.

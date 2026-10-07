@@ -9,7 +9,7 @@ from ._common import add
 def register(sub, common) -> None:
     p = add(sub, common, "find", "find definitions by name across the repo (substring, case-insensitive)",
             "Matches declaration names (and qualified names when the query has a dot). Exact\n"
-            "matches sort first, then production code before tests.",
+            "matches sort first, then code before docs and data files, then production before tests.",
             "examples:\n  topomark find router\n  topomark find Router.add --exact\n  topomark find Pad --kind class")
     p.add_argument("name")
     p.add_argument("--kind", metavar="K,..", help="only these kinds (class,method,function,const,...)")
@@ -40,7 +40,7 @@ def run(args, ctx) -> Result:
                 ok = ql in (s.qualname.lower() if "." in q else s.name.lower())
             if ok:
                 rank = (0 if s.name == q or s.qualname == q else 1 if s.name.lower() == ql else 2,
-                        nav.is_test(path), path, s.start)
+                        not nav.is_code(path, info), nav.is_test(path), path, s.start)
                 hits.append((rank, path, s))
     hits.sort(key=lambda h: h[0])
     if not hits:

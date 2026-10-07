@@ -4,7 +4,10 @@ Listed: classes (nested classes too), functions and methods directly inside a
 module or class (functions nested inside functions are bodies, not listed),
 UPPER_CASE module constants. Exported = no leading underscore, or named in
 ``__all__`` when the module defines it. Header = module docstring, else the
-leading comment block.
+leading comment block. Imports = every ``import`` / ``from … import`` statement,
+indented ones included (imports inside functions are common in CLIs), plus
+``importlib.import_module`` / ``__import__`` with a literal name; a computed name
+records ``DYNAMIC``.
 """
 
 from __future__ import annotations
@@ -12,7 +15,7 @@ from __future__ import annotations
 import ast
 import re
 
-from .base import FileInfo, Symbol, doc_summary, head_comment, idents_of, norm, surface_text
+from .base import DYNAMIC, FileInfo, Symbol, doc_summary, head_comment, idents_of, norm, surface_text
 from .scan import Syntax, mask
 
 SYNTAX = Syntax(line_comments=("#",), block_comments=(), quotes=('"', "'"), triple_quotes=('"""', "'''"),
@@ -20,6 +23,10 @@ SYNTAX = Syntax(line_comments=("#",), block_comments=(), quotes=('"', "'"), trip
 _DEF = re.compile(r"^(\s*)(async\s+def|def|class)\s+([A-Za-z_]\w*)")
 _CONST = re.compile(r"^([A-Z][A-Z0-9_]*)\s*(?::[^=]+)?=(?!=)")
 _DOCSTRING = re.compile(r'^(?:#![^\n]*\n)?(?:#[^\n]*\n|\s*\n)*\s*[rRuUbB]?("""|\'\'\')(.*?)\1', re.S)
+_IMPORT = re.compile(r"^[ \t]*import[ \t]+([\w. \t,]+)", re.M)
+_FROM = re.compile(r"^[ \t]*from[ \t]+(\.*[\w.]*)[ \t]+import[ \t]*(\([^)]*\)|[^\n]*(?:\\\n[^\n]*)*)", re.M)
+_LOADER = re.compile(r"(?<!def )\b(import_module|__import__|spec_from_file_location)[ \t]*\(")
+_LITERAL = re.compile(r"\s*([rRbBuU]{0,2})(['\"])([\w.]+)\2\s*[,)]")
 
 
 class Python:
@@ -89,7 +96,40 @@ class Python:
                         line_count=len(rlines))
         info.surface = surface_text(header, decls)
         info.types = [s.name for s in symbols if not s.container and s.kind in ("class", "function") and s.exported]
+        info.imports = python_imports(m.text, text)
         return info
+
+
+def python_imports(masked: str, text: str) -> list[str]:
+    """Module specifiers as written: ``import a.b`` → ``a.b``; ``from .x import y`` →
+    ``.x`` and ``.x.y`` (``y`` may be a submodule; resolution keeps what exists)."""
+    out: list[str] = []
+
+    def add(spec: str) -> None:
+        if spec and spec not in out:
+            out.append(spec)
+
+    for m in _IMPORT.finditer(masked):
+        for part in m.group(1).split(","):
+            words = part.split()
+            if words:
+                add(words[0])
+    for m in _FROM.finditer(masked):
+        mod = m.group(1)
+        if mod == "__future__":
+            continue
+        add(mod)
+        for part in m.group(2).replace("\\\n", " ").strip().strip("()").split(","):
+            words = part.split()
+            if words and words[0] != "*":
+                add(mod + words[0] if mod.endswith(".") else f"{mod}.{words[0]}")
+    for m in _LOADER.finditer(masked):
+        lit = _LITERAL.match(text, m.end())
+        if m.group(1) != "spec_from_file_location" and lit and "f" not in lit.group(1).lower():
+            add(lit.group(3))
+        else:
+            add(DYNAMIC)
+    return out
 
 
 _OPENERS = str.maketrans("", "", "".join(chr(c) for c in range(128) if chr(c) not in "([{)]}"))

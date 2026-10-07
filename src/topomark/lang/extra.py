@@ -219,7 +219,7 @@ _SW_KEYWORDS = {"func", "var", "let", "init", "subscript", "typealias", "case"}
 class Swift(BraceLanguage):
     name = "swift"
     syntax = Syntax(line_comments=("//",), block_comments=(("/*", "*/"),), nested_block_comments=True,
-                    quotes=('"',), triple_quotes=('"""',), dq_interp="\\(")
+                    quotes=('"',), triple_quotes=('"""',), dq_interp="\\(", swift_raw=True)
     terminators = ";\n"
 
     def premask(self, text: str) -> str:

@@ -1,0 +1,229 @@
+# Navigation eval tasks for tools/eval_nav.py (format: see that file's docstring).
+#
+# Written before `search`, `locate` and `brief` existed, phrased the way an agent asks:
+# a name fragment for `find`, keywords for `search`, the message it saw for `locate`,
+# a file or a name for `brief`, a changed file for `tests-for`. Do not tune the
+# queries to the tool: when a gold answer moves with the code, update the gold only.
+#
+# repo = "self" is this checkout; repo = "synth" is the small synthetic repo that
+# tools/synth_repo.py generates (its import chains are fixed files).
+#
+# expect = "miss" marks a control: the command must NOT return the gold (the gold
+# still has to exist). It counts under "controls held", never in hit@k or MRR.
+
+# ---------------------------------------------------------------- find: a name fragment
+[[task]]
+id = "find-stamp"
+kind = "find"
+query = "stamp"
+gold = "src/topomark/stamps.py#Stamps"
+note = "where do review stamps live; doc headings must not outrank the class"
+
+[[task]]
+id = "find-frontmatter"
+kind = "find"
+query = "frontmatter"
+gold = "src/topomark/docs.py#parse_frontmatter"
+note = "area frontmatter parsing; init's frontmatter() writer and the skill linter's parser are near misses"
+
+[[task]]
+id = "find-owner"
+kind = "find"
+query = "owner"
+gold = "src/topomark/docs.py#owner_of"
+note = "a JSON key and a Markdown heading named exactly `owner` compete"
+
+[[task]]
+id = "find-fanin"
+kind = "find"
+query = "fanin"
+gold = "src/topomark/graph.py#Graph.fanin"
+
+[[task]]
+id = "find-pagerank"
+kind = "find"
+query = "pagerank"
+gold = "src/topomark/navigate.py#pagerank_files"
+note = "the ranking `map` uses, not Graph.pagerank"
+
+[[task]]
+id = "find-secret"
+kind = "find"
+query = "secret"
+gold = ["src/topomark/repo.py#is_secret", "src/topomark/repo.py#SECRET_PATTERNS"]
+note = "fixture symbols named `secret` compete"
+
+[[task]]
+id = "find-runner"
+kind = "find"
+query = "runner"
+gold = "src/topomark/navigate.py#render_runner"
+note = "how a [[tests.runner]] becomes a command"
+
+[[task]]
+id = "find-workspace-exact"
+kind = "find"
+query = "Workspace"
+args = ["--exact"]
+gold = "src/topomark/workspace.py#Workspace"
+note = "sanity: an exact class name"
+
+# ---------------------------------------------------------------- search: keywords, not a pasted issue
+[[task]]
+id = "search-stamp-hash"
+kind = "search"
+query = "review stamp surface hash"
+gold = ["src/topomark/stamps.py#unit_surface_hash", "src/topomark/workspace.py#Workspace.surface_hash",
+        "src/topomark/workspace.py#Workspace.unit_hash"]
+
+[[task]]
+id = "search-secret-refusal"
+kind = "search"
+query = "refuse to read secret files"
+gold = ["src/topomark/repo.py#read_text", "src/topomark/repo.py#is_secret"]
+
+[[task]]
+id = "search-runner-placeholders"
+kind = "search"
+query = "test runner command placeholders"
+gold = "src/topomark/navigate.py#render_runner"
+
+[[task]]
+id = "search-check-problems"
+kind = "search"
+query = "check problems coverage dead paths"
+gold = "src/topomark/workspace.py#Workspace.problems"
+
+[[task]]
+id = "search-cache-dir"
+kind = "search"
+query = "analysis cache directory per repo"
+gold = ["src/topomark/index.py#cache_dir", "src/topomark/index.py#Index"]
+
+[[task]]
+id = "search-propose-areas"
+kind = "search"
+query = "propose areas from manifest directories"
+gold = ["src/topomark/commands/init.py#Planner", "src/topomark/commands/init.py#build_plan"]
+
+# ---------------------------------------------------------------- locate: the message the agent saw
+[[task]]
+id = "locate-secret"
+kind = "locate"
+query = "error: REFUSED: refusing to read a secret-looking file: .env"
+gold = "src/topomark/repo.py#read_text"
+
+[[task]]
+id = "locate-config-section"
+kind = "locate"
+query = "topomark.toml: unknown section [tool]"
+gold = "src/topomark/config.py#Config.from_dict"
+
+[[task]]
+id = "locate-impact-neither"
+kind = "locate"
+query = "error: NOT_FOUND: 'Frobnicate' is neither a file nor a declared name (try `topomark find Frobnicate`)"
+gold = "src/topomark/navigate.py#impact_symbol"
+
+[[task]]
+id = "locate-stamps-format"
+kind = "locate"
+query = "FAIL  STAMPS_FORMAT   docs/codemap/stamps.json: stamps.json is format 1; this topomark reads 2. Review, then `topomark stamp --baseline --force`."
+gold = "src/topomark/workspace.py#Workspace.stamp_problems"
+note = "values were interpolated into the f-string, so the whole line is not a literal in the source"
+
+[[task]]
+id = "locate-unowned"
+kind = "locate"
+query = "FAIL  UNOWNED         src/app/new_module.py: no area's scope covers this file"
+gold = "src/topomark/workspace.py#Workspace.problems"
+
+[[task]]
+id = "locate-trace-python"
+kind = "locate"
+gold = "src/topomark/navigate.py#Nav.info"
+trace = '''
+Traceback (most recent call last):
+  File "/home/ci/work/topomark/src/topomark/cli.py", line {line:src/topomark/cli.py#main}, in main
+    result: Result = handler(args, Context(args))
+  File "/home/ci/work/topomark/src/topomark/commands/outline.py", line {line:src/topomark/commands/outline.py#run}, in run
+    info = nav.info(path)
+  File "/home/ci/work/topomark/src/topomark/navigate.py", line {line:src/topomark/navigate.py#Nav.info}, in info
+    raise TopomarkError("NOT_FOUND", f"no such file: {path}")
+topomark.errors.TopomarkError: no such file: src/missing.py
+'''
+note = "innermost frame; line numbers are filled in from the current code"
+
+# ---------------------------------------------------------------- brief: before editing a file or a name
+[[task]]
+id = "brief-stamps"
+kind = "brief"
+query = "Stamps"
+gold = "src/topomark/workspace.py"
+note = "the caller to check before changing Stamps"
+
+[[task]]
+id = "brief-repo"
+kind = "brief"
+query = "src/topomark/repo.py"
+gold = "src/topomark/context.py"
+
+[[task]]
+id = "brief-graph"
+kind = "brief"
+query = "Graph"
+gold = "src/topomark/workspace.py"
+
+[[task]]
+id = "brief-config"
+kind = "brief"
+query = "src/topomark/config.py"
+gold = "tests/test_meta.py"
+note = "the test that feeds docs/config.md through Config.from_dict"
+
+# ---------------------------------------------------------------- tests: the tests a change needs
+[[task]]
+id = "tests-config"
+kind = "tests"
+query = "src/topomark/config.py"
+gold = "tests/test_meta.py"
+
+[[task]]
+id = "tests-navigate"
+kind = "tests"
+query = "src/topomark/navigate.py"
+gold = "tests/test_navigation.py"
+note = "tests drive the CLI; commands/__init__.py loads command modules with importlib"
+
+[[task]]
+id = "tests-js-ts-adapter"
+kind = "tests"
+query = "src/topomark/lang/js_ts.py"
+gold = "tests/test_lang.py"
+note = "test_lang reaches adapters through registry.analyze"
+
+[[task]]
+id = "synth-tests-py-chain"
+kind = "tests"
+repo = "synth"
+query = "py/chain/leaf.py"
+gold = "tests/py/test_chain.py"
+note = "leaf <- mid <- top <- test: two import hops"
+
+[[task]]
+id = "synth-tests-py-chain-depth1"
+kind = "tests"
+repo = "synth"
+query = "py/chain/leaf.py"
+args = ["--depth", "1"]
+gold = "tests/py/test_chain.py"
+expect = "miss"
+note = "control: the test is two hops away, so one hop must not reach it; informs the --depth default"
+
+[[task]]
+id = "synth-tests-ts-chain"
+kind = "tests"
+repo = "synth"
+query = "ts/chain/leaf.ts"
+gold = "tests/ts/chain.test.ts"
+note = "leaf <- mid <- top (imports ./mid.js, a .ts file); the test imports the index.ts barrel and names ChainTop"

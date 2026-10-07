@@ -204,8 +204,8 @@ class DirGranularityTest(unittest.TestCase):
                 ---
                 | unit | summary |
                 |---|---|
-                | `app/services/billing/`（2 檔） | billing |
-                | `app/services/mail/`（3 檔） | mail |
+                | `app/services/billing/` (2 files) | billing |
+                | `app/services/mail/` (3 files) | mail |
                 | `app/services/` | entry points |
                 """,
         }
@@ -214,7 +214,7 @@ class DirGranularityTest(unittest.TestCase):
             d = r.json("check", "--no-stamps", expect=1)
             self.assertEqual([(p["code"], p["subject"]) for p in d["problems"]],
                              [("UNIT_COUNT", "app/services/mail/")])
-            r.write({"docs/codemap/services.md": r.read("docs/codemap/services.md").replace("（3 檔）", "（1 檔）")})
+            r.write({"docs/codemap/services.md": r.read("docs/codemap/services.md").replace("(3 files)", "(1 file)")})
             r.cli("stamp", "--baseline")
             self.assertTrue(r.json("check")["ok"])
             r.write({"app/services/billing/tax.py": "class TaxRule:\n    def rate(self):\n        pass\n"})

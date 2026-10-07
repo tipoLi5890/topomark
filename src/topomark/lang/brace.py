@@ -106,6 +106,10 @@ class BraceLanguage:
     def extra_surface(self, masked: Masked) -> list[str]:
         return []
 
+    def imports_of(self, masked: Masked) -> list[str]:
+        """Hook: module specifiers this file imports (``FileInfo.imports``)."""
+        return []
+
     def header_of(self, text: str) -> list[str]:
         if "#" not in self.syntax.line_comments and "#" in text:
             text = _PP_LINE.sub("", text)  # `#include`, `#if`, `#pragma` are not header comments
@@ -133,6 +137,7 @@ class BraceLanguage:
                       or (not s.container and s.kind in ("function", "const") and s.exported and self.functions_are_types)]
         info.types = list(dict.fromkeys(info.types))
         info.surface = surface_text(header, surface_decls + self.extra_surface(m))
+        info.imports = self.imports_of(m)
         return info
 
     functions_are_types = False  # JS/TS/Go: top-level exported functions are the unit of fan-in

@@ -4,16 +4,18 @@ Exported = has ``export`` (ESM), or is named in ``module.exports = {...}`` /
 ``exports.x =`` (CommonJS). The surface is the header comment, every exported
 declaration's signature, and the CommonJS export lists verbatim. Top-level
 functions and exported functions/consts count as the file's "types" for fan-in,
-since JS modules are referenced by function names, not classes.
+since JS modules are referenced by function names, not classes. Imports =
+specifiers of ``import … from``, ``import "x"``, ``export … from``, ``require()``
+and ``import()``; a computed ``require(x)`` / ``import(`./${x}`)`` records ``DYNAMIC``.
 """
 
 from __future__ import annotations
 
 import re
 
-from .base import norm
+from .base import DYNAMIC, norm
 from .brace import BraceLanguage, Decl, _Scope
-from .scan import Syntax
+from .scan import Masked, Syntax
 
 _CONTROL = {"if", "else", "for", "while", "do", "switch", "try", "catch", "finally", "with", "return", "case",
             "default", "new", "await", "yield", "throw", "typeof", "void", "delete", "in", "of"}
@@ -29,6 +31,9 @@ _METHOD = re.compile(r"^(?:(?:public|private|protected|static|readonly|abstract|
                      r"\*?\s*(#?[A-Za-z_$][\w$]*)\s*(?:<[^()]*>)?\s*\(")
 _CLASS_FIELD = re.compile(r"^(?:(?:public|private|protected|static|readonly|abstract|override|declare|accessor)\s+)*"
                           r"(#?[A-Za-z_$][\w$]*)\s*[?!]?\s*(?::[^=]+)?=")
+# On masked text (string literals blanked): where a module specifier string may start.
+_SPECIFIER_AT = re.compile(r"(?<![.\w$])(?:(import|require)\s*\(|(?:from|import)(?![\w$]))")
+_STRING_AT = re.compile(r"\s*(?:(['\"])([^'\"\n]*)\1|`([^`$]*)`)")  # on the original text
 
 
 class JsTs(BraceLanguage):
@@ -50,6 +55,20 @@ class JsTs(BraceLanguage):
             if not s.container and s.kind in ("class", "interface", "enum", "function", "type", "const")
             and (s.exported or s.kind in ("class", "function"))))
         return info
+
+    def imports_of(self, masked: Masked) -> list[str]:
+        out: list[str] = []
+        for hit in _SPECIFIER_AT.finditer(masked.text):
+            lit = _STRING_AT.match(masked.original, hit.end())
+            if lit:
+                spec = lit.group(2) if lit.group(2) is not None else lit.group(3)
+            elif hit.group(1):  # require(name) / import(`./pages/${name}`)
+                spec = DYNAMIC
+            else:
+                continue
+            if spec and spec not in out:
+                out.append(spec)
+        return out
 
     def _exp(self, export_kw: str | None, name: str) -> bool:
         return bool(export_kw) or name in getattr(self, "_cjs", set())

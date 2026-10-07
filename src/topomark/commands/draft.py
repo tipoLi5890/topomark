@@ -3,16 +3,14 @@
 One row per unit that the area file does not mention yet (a file, or a directory
 with ``granularity: dir``): ``| `path` | summary | fan-in P/T |``. The summary is
 prefilled from the file's header comment or docstring, else the first documented
-symbol, else the names it declares; for a directory unit it is a file count plus
-the summary of its most representative file. The impact column is the current
-fan-in in the project's language (``fan-in P/T``, or ``扇入 P／T`` for Chinese), so
-``topomark sync`` keeps it current. ``--write`` appends the rows to the table under
-the ``## Files`` / ``## 檔案表`` heading (creating it when missing).
+symbol, else the names it declares; for a directory unit it is the summary of its
+most representative file. The impact column is the current fan-in, ``fan-in P/T``,
+so ``topomark sync`` keeps it current. ``--write`` appends the rows to the table
+under the ``## Files`` heading (``File table``, ``Units`` and ``Files and units``
+also count), creating it when missing.
 
-Directory rows carry their file count in the summary cell, not right after the
-path, so ``check`` does not verify it there; write ``（N 檔）`` / ``(N files)`` right
-after the backticks yourself if you want it verified (that form gives up the
-synced fan-in on the same row).
+Directory rows carry their file count right after the path, ``(N files)``, where
+``check`` verifies it.
 """
 
 from __future__ import annotations
@@ -22,7 +20,7 @@ import re
 from . import Result
 from ._common import add
 
-_HEADINGS = re.compile(r"^##\s+(?:Files|File table|Units|Files and units|檔案表|檔案|單元|文件表)\s*$", re.I)
+_HEADINGS = re.compile(r"^##\s+(?:Files|File table|Units|Files and units)\s*$", re.I)
 _SKIP_HEADER = re.compile(r"^(copyright|\(c\)|©|spdx-license|licensed under|@license|all rights reserved|-\*-)", re.I)
 _REPRESENTATIVE = ("__init__.py", "index.ts", "index.tsx", "index.js", "index.mjs", "mod.rs", "main.py", "main.go",
                    "main.ts", "main.dart", "lib.rs", "README.md")
@@ -64,15 +62,12 @@ def file_summary(info) -> str:
     return _cell(", ".join(names)) if names else ""
 
 
-def unit_summary(ws, unit: str, files: list[str], lang: str) -> str:
+def unit_summary(ws, unit: str, files: list[str]) -> str:
     if not unit.endswith("/"):
         return file_summary(ws.infos.get(unit))
-    zh = lang.startswith("zh")
-    count = f"{len(files)} 檔" if zh else f"{len(files)} file{'s' if len(files) != 1 else ''}"
     direct = sorted(f for f in files if "/" not in f[len(unit):])
     ordered = sorted(files, key=lambda f: (f.rsplit("/", 1)[-1] not in _REPRESENTATIVE, f not in direct,
                                            f.count("/"), f))
-    _ = count  # the count lives in the unit cell (`unit/`（N 檔）) where `check` verifies it
     for f in ordered:
         s = file_summary(ws.infos.get(f))
         if s:
@@ -80,7 +75,7 @@ def unit_summary(ws, unit: str, files: list[str], lang: str) -> str:
     return ""
 
 
-def missing_rows(ws, area, lang: str) -> list[dict]:
+def missing_rows(ws, area) -> list[dict]:
     from .. import docs as D
 
     rows = []
@@ -88,29 +83,27 @@ def missing_rows(ws, area, lang: str) -> list[dict]:
         if u["area"] != area.name or D.mentions(area.text, unit):
             continue
         p, t = ws.unit_fanin(unit)
-        impact = f"扇入 {p}／{t}" if lang.startswith("zh") else f"fan-in {p}/{t}"
-        rows.append({"unit": unit, "summary": unit_summary(ws, unit, u["files"], lang), "impact": impact,
+        rows.append({"unit": unit, "summary": unit_summary(ws, unit, u["files"]), "impact": f"fan-in {p}/{t}",
                      "fanin": {"prod": p, "test": t}, "files": len(u["files"])})
     return rows
 
 
-def row_text(r: dict, lang: str = "en") -> str:
+def row_text(r: dict) -> str:
     unit = f"`{r['unit']}`"
     if r["unit"].endswith("/"):
         n = r["files"]
-        unit += f"（{n} 檔）" if lang.startswith("zh") else f" ({n} file{'s' if n != 1 else ''})"
+        unit += f" ({n} file{'s' if n != 1 else ''})"
     return f"| {unit} | {r['summary']} | {r['impact']} |"
 
 
-def insert_rows(text: str, rows: list[str], lang: str) -> str:
+def insert_rows(text: str, rows: list[str]) -> str:
     """Append rows after the last row of the table under the files heading; create it when missing."""
     lines = text.split("\n")
     head = next((i for i, ln in enumerate(lines) if _HEADINGS.match(ln.strip())), None)
-    zh = lang.startswith("zh")
-    table_head = ["| 檔案 | 摘要 | 影響範圍 |" if zh else "| file | summary | impact |", "|---|---|---|"]
+    table_head = ["| file | summary | impact |", "|---|---|---|"]
     if head is None:
         body = text.rstrip("\n")
-        return body + "\n\n" + ("## 檔案表" if zh else "## Files") + "\n\n" + "\n".join(table_head + rows) + "\n"
+        return body + "\n\n## Files\n\n" + "\n".join(table_head + rows) + "\n"
     end = next((i for i in range(head + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
     sep = next((i for i in range(head + 1, end) if re.match(r"^\|\s*:?-{3,}", lines[i].strip())), None)
     if sep is None:
@@ -132,16 +125,13 @@ def run(args, ctx) -> Result:
                                                        a.file.rsplit("/", 1)[-1][:-3])), None)
     if area is None:
         raise TopomarkError("NOT_FOUND", f"no area named {args.area!r} (have: {', '.join(a.name for a in ws.areas)})")
-    lang = ctx.config.lang
-    if not lang.startswith("zh") and "扇入" in area.text:
-        lang = "zh-Hant"
-    rows = missing_rows(ws, area, lang)
-    lines = [row_text(r, lang) for r in rows]
+    rows = missing_rows(ws, area)
+    lines = [row_text(r) for r in rows]
     data = {"area": area.name, "file": area.file, "granularity": area.granularity, "rows": rows, "written": False}
     if not rows:
         return Result(data, f"topomark draft {area.name}: every unit already has a row in {area.file}")
     if args.write:
-        write_text(ctx.root, area.file, insert_rows(area.text, lines, lang))
+        write_text(ctx.root, area.file, insert_rows(area.text, lines))
         data["written"] = True
         tail = (f"\n\ntopomark draft: appended {len(rows)} row(s) to {area.file}. Read each file, correct its row, "
                 f"then stamp each reviewed row with `topomark stamp <path>`.")

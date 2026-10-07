@@ -12,8 +12,8 @@ from typing import Any
 # Order here is the order in `topomark --help`.
 _NAMES = [
     "init", "doctor", "capabilities",
-    "gen", "check", "sync", "stamp", "diff", "stale", "owner", "draft", "hook",
-    "outline", "symbol", "find", "refs", "impact", "tests_for", "map",
+    "gen", "check", "sync", "stamp", "diff", "stale", "owner", "draft", "hook", "agent_hook",
+    "outline", "symbol", "find", "search", "locate", "refs", "impact", "brief", "tests_for", "changes", "syntax", "map",
 ]
 
 

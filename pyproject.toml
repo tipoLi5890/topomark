@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 # The distribution, the import package and the CLI command are all `topomark`;
 # keep the three in lockstep.
 name = "topomark"
-version = "0.1.0"
+version = "0.2.0"
 description = "A zero-dependency code map for AI coding agents: progressive-disclosure docs, per-file review stamps that catch stale summaries, and fast symbol/impact/test navigation for any repo."
 requires-python = ">=3.11"
 readme = "README.md"
@@ -41,7 +41,7 @@ topomark = "topomark.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-"topomark.templates" = ["en/*.md", "zh-Hant/*.md"]
+"topomark.templates" = ["*.md"]
 
 [tool.ruff]
 line-length = 120

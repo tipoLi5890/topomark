@@ -18,7 +18,8 @@ from ._common import add
 MARK = "# topomark pre-commit gate"
 SCRIPT = """#!/bin/sh
 {mark}
-# Runs `topomark check` when the commit touches code or the code map. Skip once: git commit --no-verify
+# Runs `topomark check` on any commit with staged changes; only findings (exit 1) block it, so a
+# broken config or a topomark crash never stops a commit. Skip once: git commit --no-verify
 hooks_dir=$(dirname "$0")
 if [ -x "$hooks_dir/pre-commit.local" ]; then "$hooks_dir/pre-commit.local" "$@" || exit $?; fi
 if ! git diff --cached --name-only --diff-filter=ACMRD | grep -q .; then exit 0; fi

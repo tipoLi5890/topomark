@@ -42,6 +42,7 @@ class Syntax:
     char_literals_only: bool = False        # single quote is a char literal (C/C++/Java/C#/Rust lifetimes)
     rust_raw: bool = False                  # r"..." r#"..."# br"..." raw strings
     cpp_raw: bool = False                   # R"delim(...)delim" raw strings (also u8R, uR, UR, LR)
+    swift_raw: bool = False                 # #"..."#, ##"..."##, #"""..."""# raw strings and #/.../# regexes
     regex_literals: bool = False            # JS /re/flags where an expression may start
     extra_openers: tuple[str, ...] = field(default_factory=tuple)
 
@@ -97,6 +98,8 @@ def mask(text: str, syntax: Syntax) -> Masked:
         openers += ['r"', "r#"]
     if syntax.cpp_raw:
         openers.append('R"')
+    if syntax.swift_raw:
+        openers.append("#")
     if syntax.regex_literals:
         openers.append("/")
     openers += list(syntax.extra_openers)
@@ -128,6 +131,14 @@ def mask(text: str, syntax: Syntax) -> Masked:
             e = _regex_end(text, s)
             if e is None:
                 i = s + 1
+                continue
+            _blank(buf, s, e)
+            i = e
+            continue
+        if tok == "#" and syntax.swift_raw:
+            e = _swift_raw_end(text, s)
+            if e is None:
+                i = s + 1  # `#if`, `#selector(...)`: not a literal
                 continue
             _blank(buf, s, e)
             i = e
@@ -299,6 +310,29 @@ def _regex_end(text: str, s: int) -> int | None:
             return i
         i += 1
     return None
+
+
+_SWIFT_RAW = re.compile(r'(#+)("""|"|/)')
+
+
+def _swift_raw_end(text: str, s: int) -> int | None:
+    """End of a Swift raw literal at ``s``: ``#"…"#`` with any number of ``#`` (escapes and
+    interpolation need as many ``#`` again, so a lone ``"`` or ``\\`` inside is text),
+    ``#\"\"\"…\"\"\"#`` over several lines, or an extended regex literal ``#/…/#``. None when
+    ``s`` starts no such literal; a single-line one left open stops at the end of its line."""
+    m = _SWIFT_RAW.match(text, s)
+    if not m:
+        return None
+    close = m.group(2) + m.group(1)
+    e = text.find(close, m.end())
+    if m.group(2) == '"""':
+        return len(text) if e < 0 else e + len(close)
+    nl = text.find("\n", m.end())
+    if e < 0 or 0 <= nl < e:
+        if m.group(2) == "/":
+            return None
+        return len(text) if nl < 0 else nl
+    return e + len(close)
 
 
 _RUST_RAW = re.compile(r'r(#*)"')

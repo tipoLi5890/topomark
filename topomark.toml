@@ -1,0 +1,20 @@
+# topomark configuration (https://github.com/tipoLi5890/topomark).
+# Areas are not configured here: each area file's frontmatter (scope, granularity) is the
+# single source of truth. Every key is optional; see docs/config.md.
+
+[topomark]
+docs_dir = "docs/codemap"
+
+[files]
+# tests/fixtures holds deliberately odd sources for the adapters' tests: never map or navigate them.
+exclude = ["tests/fixtures/**"]
+# Not code by extension, but shipped and depended on: the launcher, the plugin hooks and manifest,
+# the skill, and the templates init writes.
+every_file_roots = ["bin/", "hooks/", "skills/", ".claude-plugin/", "src/topomark/templates/"]
+
+[[tests.runner]]
+# unittest takes test files by path; bare class names (names = "class") would not resolve.
+match = "tests/"
+command = "python3 -m unittest {names}"
+names = "file"
+suite = "python3 -m unittest discover -s tests -t ."

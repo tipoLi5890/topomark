@@ -1,17 +1,19 @@
 """Repository-wide contracts: every command is registered and described, every --json
 output carries schema_version, text I/O in src/ is explicit about encoding and
-newlines, docs only show commands the parser accepts, zh-Hant text has no dashes."""
+newlines, docs only show commands the parser accepts, the zh-Hant README has no dashes."""
 
 from __future__ import annotations
 
 import argparse
 import ast
 import importlib
+import io
 import json
 import re
 import shlex
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from tests.harness import TempRepo, run_cli
 
@@ -86,7 +88,7 @@ class CommandRegistryTest(unittest.TestCase):
                     argv = ["hook", "status"]
                 if name == "init":
                     argv.append("--dry-run")
-                with self.subTest(command=name):
+                with self.subTest(command=name), mock.patch("sys.stdin", io.StringIO("")):  # agent-hook reads stdin
                     rc, out, err = repo.cli(*argv, "--json")
                     lines = [ln for ln in out.split("\n") if ln.strip()]
                     self.assertEqual(len(lines), 1, f"{argv}: stdout must be one JSON line\n{out}\n{err}")
@@ -221,16 +223,14 @@ class DocsConformanceTest(unittest.TestCase):
 
 
 class ZhHantStyleTest(unittest.TestCase):
-    def test_no_dashes_in_zh_hant_text(self) -> None:
-        paths = sorted((SRC / "templates" / "zh-Hant").rglob("*.md")) + [ROOT / ".github" / "README.zh-Hant.md"]
-        for p in paths:
-            with self.subTest(path=p.name):
-                self.assertNotIn("—", p.read_text(encoding="utf-8"))
+    def test_no_dashes_in_zh_hant_readme(self) -> None:
+        self.assertNotIn("—", (ROOT / ".github" / "README.zh-Hant.md").read_text(encoding="utf-8"))
 
-    def test_templates_exist_for_both_languages(self) -> None:
-        for lang in ("en", "zh-Hant"):
-            for name in ("L0.md", "_TEMPLATE.md", "area.md"):
-                self.assertTrue((SRC / "templates" / lang / name).is_file(), f"{lang}/{name}")
+
+class TemplatesTest(unittest.TestCase):
+    def test_templates_exist(self) -> None:
+        for name in ("L0.md", "_TEMPLATE.md", "area.md"):
+            self.assertTrue((SRC / "templates" / name).is_file(), name)
 
 
 class ConfigDocTest(unittest.TestCase):

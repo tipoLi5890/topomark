@@ -14,6 +14,10 @@ An adapter turns ``(path, text)`` into a ``FileInfo``:
 * ``idents``: identifiers in code (comments and strings masked out), used for
   references and fan-in.
 * ``types``: top-level type names this file declares, the unit of fan-in.
+* ``imports``: module specifiers exactly as written (Python ``a.b``, ``.x``,
+  ``..``; JS/TS ``./x``, ``react``), ``DYNAMIC`` when a module is loaded by a
+  computed name. Resolved to files by ``navigate``; never part of the surface,
+  so adding an import does not ask for a review.
 """
 
 from __future__ import annotations
@@ -22,6 +26,7 @@ import re
 from dataclasses import asdict, dataclass, field
 
 IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+DYNAMIC = "<dynamic>"  # an import whose module name is computed at run time
 _WS = re.compile(r"\s+")
 
 
@@ -57,6 +62,7 @@ class FileInfo:
     idents: set[str] = field(default_factory=set)
     types: list[str] = field(default_factory=list)
     line_count: int = 0
+    imports: list[str] = field(default_factory=list)
 
     def to_json(self) -> dict:
         return {
@@ -66,13 +72,14 @@ class FileInfo:
             "header": self.header,
             "symbols": [s.to_json() for s in self.symbols],
             "types": self.types,
+            "imports": self.imports,
         }
 
     @classmethod
     def from_json(cls, d: dict, idents: list[str], surface: str) -> "FileInfo":
         syms = [Symbol(**{**{"container": "", "attrs": [], "doc": ""}, **s}) for s in d["symbols"]]
         return cls(path=d["path"], lang=d["lang"], header=d["header"], symbols=syms, surface=surface,
-                   idents=set(idents), types=d["types"], line_count=d["line_count"])
+                   idents=set(idents), types=d["types"], line_count=d["line_count"], imports=d.get("imports", []))
 
 
 def norm(s: str) -> str:

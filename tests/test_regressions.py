@@ -24,3 +24,14 @@ class ParityRegressions(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class InitKeepsConfig(unittest.TestCase):
+    def test_force_never_replaces_a_hand_written_config(self) -> None:
+        from tests.harness import TempRepo
+
+        toml = '[topomark]\ndocs_dir = "docs/codemap"\n\n[[tests.runner]]\nmatch = "tests/"\ncommand = "pytest {files}"\n'
+        with TempRepo({"src/app.py": "def run():\n    pass\n", "topomark.toml": toml}) as r:
+            rc, out, err = r.cli("init", "--force")
+            self.assertEqual(rc, 0, err)
+            self.assertEqual(r.read("topomark.toml"), toml)

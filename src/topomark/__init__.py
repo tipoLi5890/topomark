@@ -9,7 +9,6 @@ misreport, and falls back to the installed metadata.
 from __future__ import annotations
 
 import tomllib
-from importlib import metadata
 from pathlib import Path
 
 
@@ -21,6 +20,8 @@ def _version() -> str:
                 return str(tomllib.load(fh)["project"]["version"])
         except (OSError, KeyError, tomllib.TOMLDecodeError):
             pass
+    from importlib import metadata  # slow to import (zipfile, email): only on this fallback path
+
     try:
         return metadata.version("topomark")
     except metadata.PackageNotFoundError:

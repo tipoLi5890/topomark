@@ -34,8 +34,8 @@ scope:
 
 - First cell: the full repo path in backticks and nothing else. Directory units end in `/`.
 - Summary: what it does and its key types, in at most about 15 words. Not how it works.
-- Impact: `fan-in P/T` (`扇入 P／T` in Chinese maps) first, kept current by `topomark sync`, then one
-  sentence on what a change requires.
+- Impact: `fan-in P/T` first, kept current by `topomark sync`, then one sentence on what a change
+  requires.
 - Link, don't restate: a design reason gets one line and a link to the rule file or ADR.
 - `topomark draft <area>` prints missing rows with the summary prefilled from the header comment or
   docstring. Read the file and correct the text before stamping.
@@ -66,6 +66,8 @@ A unit's *surface* is its header comment plus its public interface (signatures, 
 members; for data files the key skeleton). The stamp stores its SHA-256 and the git blob of the
 content. Interface changes block `check`; body-only changes show up in `topomark stale` as advisory.
 `topomark diff <unit>` shows the interface diff first and the command for the full content diff.
+Before committing, `topomark changes` lists the rows whose units had an interface change in the diff,
+with their stamp state.
 
 ```bash
 topomark stale

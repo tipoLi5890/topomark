@@ -9,15 +9,15 @@ import re
 from collections import defaultdict
 from dataclasses import dataclass
 from functools import cached_property
+from typing import Any, Callable
 
 from . import docs as D
 from .context import Context
-from .graph import Graph
-from .i18n import t
+from .graph import Graph, build_tables, tables_key
 from .index import Index
 from .stamps import Stamps, h16, unit_surface_hash
 
-FAN_RX = re.compile(r"(?:扇入|fan-in)\s*(\d+)\s*[／/]\s*(\d+)", re.I)
+FAN_RX = re.compile(r"fan-in\s*(\d+)\s*/\s*(\d+)", re.I)
 ROW_RX = re.compile(r"^\|\s*`([^`]+)`[^|`]*\|")
 
 
@@ -55,7 +55,14 @@ class Workspace:
 
     @cached_property
     def graph(self) -> Graph:
-        return Graph(self.cfg, self.infos, self.areas)
+        infos = self.infos
+        tables = self.derived("graph", tables_key(self.cfg), lambda: build_tables(self.cfg, infos))
+        return Graph(self.cfg, infos, self.areas, tables)
+
+    def derived(self, name: str, inputs: str, build: Callable[[], Any]) -> Any:
+        """Whole-repo data cached until a parsed file (or ``inputs``) changes."""
+        infos = self.infos
+        return self.index.derived(name, self.index.digest(list(infos), inputs), build)
 
     @cached_property
     def stamps(self) -> Stamps:
@@ -115,7 +122,6 @@ class Workspace:
         return {f"{base}/fanin.md": self._fanin_report(), f"{base}/modules.md": self._modules_report()}
 
     def _fanin_report(self) -> str:
-        lang = self.cfg.lang
         g = self.graph
         rows = []
         for f in self.ctx.code_files:
@@ -125,12 +131,18 @@ class Workspace:
             rows.append((len(fi.prod), len(fi.test), f, g.area_of(f) or "-", g.cross_areas(f)))
         rows.sort(key=lambda r: (-r[0], -r[1], r[2]))
         keep = ", ".join(sorted(self.cfg.keep_short_names)) or "-"
-        out = [t(lang, "fanin.title"), "", t(lang, "fanin.intro"),
-               t(lang, "fanin.rules", min=self.cfg.min_name, keep=keep), "",
-               t(lang, "fanin.header"), "|---:|---:|---|---|---|"]
+        out = ["# Fan-in (generated, do not edit; approximate)", "",
+               "Production fan-in = how many non-test files mention a name this file declares (coupling: "
+               "the callers to check when you change it). Test fan-in = how many test files mention it "
+               "(guard rails). Cross-area = which other code-map areas the production callers live in.",
+               f"Only top-level declarations count. Names shorter than {self.cfg.min_name} characters (except "
+               f"{keep}) and names declared in more than one file (unless partial) are ignored; see the end of "
+               "this file. Test files only ever reference.", "",
+               "| prod | test | file | area | cross-area callers |", "|---:|---:|---|---|---|"]
         for p, tt, f, a, cross in rows:
             out.append(f"| {p} | {tt} | `{f}` | {a} | {', '.join(cross)} |")
-        out += ["", t(lang, "fanin.excluded", short=len(g.short), amb=len(g.ambiguous)), "", "```",
+        out += ["", f"Names not counted ({len(g.short)} short, {len(g.ambiguous)} declared in several files):",
+                "", "```",
                 "short: " + ", ".join(sorted(g.short)), "ambiguous: " + ", ".join(sorted(g.ambiguous)), "```"]
         order = {r[2]: k for k, r in enumerate(rows)}
         guard: dict[str, list[str]] = defaultdict(list)
@@ -138,18 +150,18 @@ class Workspace:
             for tf in g.fanin(f).test:
                 guard[tf].append(f)
         if guard:
-            out += ["", t(lang, "fanin.tests_title"), "", t(lang, "fanin.tests_header"), "|---|---:|---|"]
+            out += ["", "## Test file → production files it mentions", "",
+                    "| test file | count | production files (by fan-in) |", "|---|---:|---|"]
             for tf in sorted(guard):
                 fs = sorted(guard[tf], key=lambda x: order[x])
                 shown = ", ".join(f"`{x}`" for x in fs[:12])
                 if len(fs) > 12:
-                    shown += " " + t(lang, "fanin.more", n=len(fs) - 12)
+                    shown += f" … {len(fs) - 12} more"
                 out.append(f"| `{tf}` | {len(fs)} | {shown} |")
         return "\n".join(out) + "\n"
 
     def _modules_report(self) -> str:
-        lang = self.cfg.lang
-        out = [t(lang, "modules.title"), ""]
+        out = ["# Module graph (generated, do not edit)", ""]
         asm = {}
         for f in self.ctx.files:
             if f.endswith(".asmdef"):
@@ -171,20 +183,21 @@ class Workspace:
                     deps = {**d.get("dependencies", {}), **d.get("devDependencies", {})}
                     npm[d["name"]] = {"file": f, "deps": sorted(deps)}
         if not asm and not npm:
-            return "\n".join(out + [t(lang, "modules.none")]) + "\n"
+            return "\n".join(out + ["(no module manifests found)"]) + "\n"
         if asm:
             rev = defaultdict(list)
             for n, d in asm.items():
                 for r in d["refs"]:
                     rev[r].append(n)
-            out += [t(lang, "modules.asmdef"), "", t(lang, "modules.asmdef_header"), "|---|---|---|---|---|"]
+            out += ["## Unity assembly definitions", "", "| assembly | file | depends on | used by | notes |",
+                    "|---|---|---|---|---|"]
             for n in sorted(asm):
                 d = asm[n]
                 note = []
                 if d["noEngine"]:
-                    note.append(t(lang, "modules.pure"))
+                    note.append("pure C#")
                 if d["platforms"]:
-                    note.append(t(lang, "modules.only", p="/".join(d["platforms"])))
+                    note.append("only " + "/".join(d["platforms"]))
                 out.append(f"| {n} | `{d['file']}` | {', '.join(d['refs']) or '-'} | "
                            f"{', '.join(sorted(rev.get(n, []))) or '-'} | {'; '.join(note)} |")
             out.append("")
@@ -195,7 +208,8 @@ class Workspace:
                 for r in d["deps"]:
                     if r in local:
                         rev[r].append(n)
-            out += [t(lang, "modules.npm"), "", t(lang, "modules.npm_header"), "|---|---|---|---|"]
+            out += ["## npm packages in this repo", "", "| package | file | depends on (in repo) | used by (in repo) |",
+                    "|---|---|---|---|"]
             for n in sorted(npm):
                 d = npm[n]
                 inner = [x for x in d["deps"] if x in local]
