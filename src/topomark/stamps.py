@@ -15,9 +15,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
 from pathlib import Path
 
 from .contract import STAMPS_VERSION
+from .errors import TopomarkError
 from .repo import git, write_text
 
 
@@ -32,13 +34,25 @@ def unit_surface_hash(file_hashes: dict[str, str]) -> str:
     return h16("\n".join(f"{p}:{h}" for p, h in sorted(file_hashes.items())))
 
 
-def blob_ids(root: Path, paths: list[str]) -> dict[str, str]:
+def blob_ids(root: Path, paths: list[str], write: bool = True) -> dict[str, str]:
     """git object ids; ``-w`` stores the content so ``diff`` can show it later
-    (unreferenced objects may be pruned by gc after ~2 weeks; hashes still work)."""
+    (unreferenced objects may be pruned by gc after ~2 weeks; hashes still work).
+    ``write=False`` only computes the ids (``check`` compares, it records nothing)."""
     if not paths:
         return {}
-    out = git(root, "hash-object", "-w", "--stdin-paths", input_text="\n".join(paths) + "\n").split()
+    out = git(root, "hash-object", *(["-w"] if write else []), "--stdin-paths",
+              input_text="\n".join(paths) + "\n").split()
     return dict(zip(paths, out))
+
+
+def blob_text(root: Path, blob: str) -> str | None:
+    """The text of a reviewed blob, line endings as ``repo.read_text`` gives them; None when git no
+    longer has the object (gc)."""
+    try:
+        data = subprocess.run(["git", "-C", str(root), "cat-file", "blob", blob], capture_output=True, check=True).stdout
+    except (subprocess.CalledProcessError, OSError):
+        return None
+    return data.decode("utf-8", errors="replace").replace("\r\n", "\n")
 
 
 class Stamps:
@@ -51,8 +65,14 @@ class Stamps:
         self.foreign_version: int | None = None
         full = root / path
         if full.is_file():
-            with open(full, encoding="utf-8") as fh:
-                data = json.load(fh)
+            try:
+                with open(full, encoding="utf-8") as fh:
+                    data = json.load(fh)
+            except ValueError as e:
+                raise TopomarkError("CONFIG", f"{path} is not valid JSON ({e}); resolve it by hand (merge "
+                                              "conflict markers?) or restore it from git") from e
+            if not isinstance(data, dict):
+                raise TopomarkError("CONFIG", f"{path} must hold a JSON object")
             v = data.get("version")
             if v == STAMPS_VERSION:
                 self.units = data.get("units", {})

@@ -132,9 +132,9 @@ look before an edit, check after it.
 | `init` | detect the stack and write the code-map skeleton (`--dry-run`, `--docs-dir`, `--force`) |
 | `draft <area>` | rows an area file is missing, prefilled (`--write`) |
 | `check` | coverage, dead paths, ownership, line caps, fan-in, generated files, stamps (`--area`, `--no-stamps`) |
-| `stale` | rows needing review (blocking) and body-only changes (advisory) |
+| `stale` | rows needing review (blocking) and body-only changes (advisory) (`--area`) |
 | `diff <unit>` | what changed since the unit's review stamp, interface first |
-| `stamp` | record a review (`<units>`, `--area`, `--edges`, `--prune`, `--baseline`) |
+| `stamp` | record a review (`<units>`, `--area`, `--edges`, `--prune`, `--baseline`, `--force` with it) |
 | `gen` | regenerate `<docs_dir>/_generated/` |
 | `sync` | rewrite the fan-in numbers written in area files |
 

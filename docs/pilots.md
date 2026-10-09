@@ -1,9 +1,88 @@
-# Pilots (2026-10-05, topomark 0.1.0)
+# Pilots and measurements
+
+"Current numbers" is what the code does today. Everything under "History" is a dated log, kept as it was
+written: later sections supersede earlier ones.
+
+## Current numbers
+
+### Navigation eval on the pinned snapshot (2026-10-09)
+
+`python3 tools/eval_nav.py`: 30 tasks, 27 about this repository as it was at `v0.2.0` (`snapshot` in
+`tools/eval/tasks.toml`, exported without `tools/eval/`), 3 on a generated 150-file repo. One task is a control
+(`expect = "miss"`), so 29 are scored. CI fails under an MRR of 0.70 (`--fail-under`).
+
+| kind | scored | hit@1 | hit@5 | MRR | mean output tokens |
+|---|---:|---|---|---:|---:|
+| find | 8 | 3 | 8 | 0.635 | 148 |
+| search | 6 | 3 | 5 | 0.653 | 514 |
+| locate | 6 | 6 | 6 | 1.000 | 204 |
+| brief | 4 | 3 | 3 | 0.786 | 468 |
+| tests-for | 5 | 3 | 5 | 0.740 | 140 |
+| all | 29 | 18 | 27 | 0.753 | 273 |
+
+`search` weighs a test method at 0.4 of its score (it was 0.5, equal to the share a test lends to the code
+it uses, so a test whose name held every query word outranked that code): on the snapshot the secret-file
+refusal went from rank 2 to 1 and the `check` problem list from 7 to 6, nothing else moved (search MRR 0.565
+to 0.653, all tasks 0.735 to 0.753).
+
+Known misses: `search` puts the `check` problem list sixth and the runner placeholders fourth; `brief` on
+`config.py` lists the gold test seventh, after the five callers; `find runner` is fourth of four functions with
+"runner" in their name.
+
+Why the eval moved to a snapshot. Until 0.2.0 the 27 tasks ran on the checkout, so the text being searched
+changed with every commit while the golds stayed. By 2026-10-09 the same tasks read MRR 0.687 (locate 5/6,
+search hit@5 4/6) against the 0.730 recorded on 2026-10-06, and `--compare` against five earlier commits gave
+the same ranks on both sides: the ranking code had not changed, the repository had. Two golds had gone stale
+without the check noticing, because the symbol they named still existed: the secret-file refusal moved from
+`repo.py#read_text` into `repo.py#safe_path` and `index.py#Index.info`, so `locate` answered correctly and
+was scored a miss. The gold check now also requires a `locate` gold to contain the message. The task file
+itself was among `locate`'s answers (as a doc hit); the snapshot leaves `tools/eval/` out.
+
+What these numbers do not show: the tasks were written by topomark's author about topomark's own code, 4 to 8
+per kind, so one task is 12 to 25 points of hit@1 in its kind. They catch a ranking regression; they are not
+evidence of how the commands do on other repositories.
+
+### Speed
+
+`python3 tools/bench_nav.py --runs 3` on the 3,000-file synthetic repo (2026-10-09, an idle Apple-silicon laptop, warm
+cache, a fresh process per run): CPU time of 0.2.0 and of the code after the first run of changes following it
+(pinned eval, config warnings, the incomplete-outline flag, the `navigate.py` split, fan-in by import).
+
+| case | 0.2.0 | after |
+|---|---:|---:|
+| `map` | 0.22 s | 0.22 s |
+| `impact-file` | 0.16 s | 0.16 s |
+| `impact-symbol` | 0.25 s | 0.25 s |
+| `tests-for` | 0.16 s | 0.16 s |
+| `outline-big` | 0.06 s | 0.05 s |
+| `outline-small` | 0.06 s | 0.05 s |
+| `symbol` | 0.06 s | 0.05 s |
+| `search` | 0.17 s | 0.16 s |
+| `brief-file` | 0.17 s | 0.17 s |
+| `brief-symbol` | 0.28 s | 0.28 s |
+| `hook-session` | 0.05 s | 0.05 s |
+| `hook-pre-read` | 0.06 s | 0.06 s |
+| `hook-post-edit` | 0.07 s | 0.06 s |
+| `hook-post-edit-broken` | 0.10 s | 0.09 s |
+| `map`, cold cache | 2.11 s | 2.17 s |
+
+Nothing got slower. These are several times lower than the 2026-10-06 tables under "History", which were
+measured at a load average of 20 to 40: compare within a table, never across them.
+
+One thing did get much faster, on real code rather than the synthetic repo: the C-family adapter took seconds
+per file (and sometimes never returned) on declarations with long identifiers, an exponential pattern that
+the synthetic C-free repo could not show. 14,000 installed JS, TS and C-family files that took minutes parse
+in 15 seconds. The test suite takes about 18 s on the same laptop (25 s before the harness stopped starting
+five git processes per throwaway repo), with 218 tests instead of 194.
+
+# History
+
+## Pilots (2026-10-05, topomark 0.1.0)
 
 Three of the author's repos, anonymised. All numbers on an Apple-silicon laptop under mixed load; "cold" uses an empty
 `TOPOMARK_CACHE`, "warm" the cache from the previous run.
 
-## Pilot A: migration from an in-repo prototype
+### Pilot A: migration from an in-repo prototype
 
 A Unity game: C# + JS/TS + Python, ~1,000 parseable files. The repository's own prototype (a single Python
 script with repo-specific constants) was replaced by topomark plus a `topomark.toml` that reproduces its rules.
@@ -25,7 +104,7 @@ script with repo-specific constants) was replaced by topomark plus a `topomark.t
   (6 + 1 test methods).
 - Timing: `check` ~1 s warm; first full index ~4 s.
 
-## Pilot B: read-only
+### Pilot B: read-only
 
 Python + TS/TSX, ~2,700 parseable files, ~560k lines. Nothing written (`git status` identical before and after).
 
@@ -41,13 +120,13 @@ Python + TS/TSX, ~2,700 parseable files, ~560k lines. Nothing written (`git stat
 rule files (a repo map, nested `CLAUDE.md`) are linked, not duplicated. `tests-for` selected pytest functions
 across five test modules.
 
-## Pilot C: read-only
+### Pilot C: read-only
 
 Python + Flutter/Dart, ~600 parseable files. Nothing written. `outline` on Dart works (`main.dart` 1.2 s),
 `map --tokens 800` 9.6 s cold. `init --dry-run` proposes four areas plus `other`, one of them the only child
 folder of `mobile/`.
 
-## Follow-ups
+### Follow-ups
 
 - Warm runs on ~3k-file repos are ~5.5 s, above the 5 s target: cache the reference graph next to the index.
   Done; see "Performance on a 3,000-file synthetic repo" below.
@@ -132,7 +211,7 @@ measured the cases the bench does not cover, CPU medians of seven runs: `session
 file in a new area 0.20 s, a repeated `pre-read` that stays silent 0.21 s, a ranged read (`offset`/`limit`)
 0.14 s, `post-edit` that reports a syntax error 0.27 s. All far inside the hooks' 5-second timeout.
 
-## Navigation eval (2026-10-06)
+## Navigation eval (2026-10-06, on the checkout of that day)
 
 `tools/eval_nav.py`: 30 tasks (27 on this repo, 3 on a generated 150-file repo), written before `search`,
 `locate` and `brief` existed; since then only one gold changed, because the code it named moved

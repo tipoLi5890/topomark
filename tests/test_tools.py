@@ -73,7 +73,7 @@ FILES = {
                          "    def test_add(self):\n        Router().add('/')\n",
 }
 
-# A runner key no topomark knows: today's rejects it as a REV before `suite` rejected `suite`.
+# A runner key no topomark knows: 0.2.0 and older reject it, as a REV before `suite` rejected `suite`.
 FUTURE_CONFIG = '[[tests.runner]]\nmatch = "tests/"\ncommand = "python3 -m unittest {names}"\nfrom_the_future = "x"\n'
 
 
@@ -182,24 +182,18 @@ class EvalNavTest(unittest.TestCase):
         self.assertIn("read topomark.toml without tests.runner[0].suite", text)
 
     def test_config_rejections_are_dropped(self) -> None:
-        from topomark.config import Config
-        from topomark.errors import TopomarkError
-
-        # One unknown name of each kind; the messages come from the real Config, one rejection at a
-        # time, as config_flags gets them through the CLI.
+        # One unknown name of each kind, in the words every topomark up to 0.2.0 rejects them with
+        # (later versions warn and read on, so only an older REV needs this).
         raw = {"topomark": {"docs_dir": "docs/map", "colour": "red"}, "legacy": {"x": 1},
                "files": {"exclude": ["tests/fixtures/**"], "keep_short_names": []},
                "tests": {"runner": [{"match": "tests/", "command": "pytest {names}", "retries": 2},
                                     {"match": "web/", "command": "npx jest \"{files}\"", "names": "file"}]}}
         dropped: list[str] = []
-        for _ in range(10):
-            try:
-                Config.from_dict(ROOT, raw)
-                break
-            except TopomarkError as e:
-                gone = self.ev.drop_rejected(raw, e.message)
-                self.assertTrue(gone, f"not understood: {e.message}")
-                dropped += gone
+        for message in ("topomark.toml: unknown section [legacy]", "topomark.toml: unknown key topomark.colour",
+                        "topomark.toml: tests.runner[0] unknown keys ['retries']"):
+            gone = self.ev.drop_rejected(raw, message)
+            self.assertTrue(gone, f"not understood: {message}")
+            dropped += gone
         self.assertEqual(sorted(dropped), ["[legacy]", "tests.runner[0].retries", "topomark.colour"])
         self.assertEqual(raw["files"]["exclude"], ["tests/fixtures/**"])  # only what was rejected goes
         self.assertEqual(self.ev.drop_rejected(raw, "a CONFIG error that names no key"), [])
@@ -208,37 +202,64 @@ class EvalNavTest(unittest.TestCase):
             self.ev.toml_text({"tests": {"runner": [{"match": "x", "when": {"a": [{"b": 1}, 2]}}]}})
 
     def test_real_tasks_have_no_stale_golds(self) -> None:
-        tasks = self.ev.load_tasks(TOOLS / "eval" / "tasks.toml")
+        path = TOOLS / "eval" / "tasks.toml"
+        tasks = self.ev.load_tasks(path)
         self.assertTrue(any(t["expect"] == "miss" for t in tasks))
+        rev = self.ev.snapshot_rev(path)
+        self.assertTrue(rev, "tasks.toml pins no snapshot: the self tasks would run on a moving target")
         synth = _load("synth_repo")
         with tempfile.TemporaryDirectory(prefix="topomark-synth-golds-") as tmp:
+            try:
+                snap = self.ev.export_snapshot(rev, Path(tmp) / "self")
+            except self.ev.NoSnapshot as e:
+                self.skipTest(f"{e} (a shallow clone has no tags; CI's eval job checks the golds)")
+            self.assertFalse((snap / "tools" / "eval").exists())  # the questions are not in the searched text
+            self.assertTrue((snap / "src" / "topomark" / "cli.py").is_file())
             synth.generate(Path(tmp) / "synth", files=self.ev.SYNTH_FILES, commit=False)
-            targets = {"self": ROOT, "synth": Path(tmp) / "synth"}
+            targets = {"self": snap, "synth": Path(tmp) / "synth"}
             bad = [b for t in tasks for b in self.ev.stale_golds(t, targets[t["repo"]])]
         self.assertEqual(bad, [])
 
+    def test_locate_gold_that_no_longer_prints_the_message_is_stale(self) -> None:
+        files = {"src/io.py": 'def check(path):\n    raise ValueError(f"refusing to read a secret file: {path}")\n\n\n'
+                              "def read(path):\n    check(path)\n    return open(path).read()\n"}
+        task = '[[task]]\nid = "locate-refusal"\nkind = "locate"\nquery = "ValueError: refusing to read a secret file: .env"\n'
+        with TempRepo(files) as repo:
+            rc, out = self.run_eval(task + 'gold = "src/io.py#read"\n', repo=repo.root)
+            self.assertEqual(rc, 2, out)  # read() exists, but the message moved into check()
+            self.assertIn("locate-refusal: src/io.py#read: no two consecutive words of the message", out)
+            rc, out = self.run_eval(task + 'gold = "src/io.py#check"\n', "--json", repo=repo.root)
+            self.assertEqual(rc, 0, out)
+            self.assertEqual(json.loads(out)["tasks"][0]["rank"], 1)
+
+    def test_fail_under_is_a_floor_on_mrr_and_errors(self) -> None:
+        self.assertEqual(self.run_eval(TASKS, "--kind", "tests", "--fail-under", "1.0")[0], 0)
+        rc, out = self.run_eval(TASKS.replace('gold = "tests/test_app.py"', 'gold = "src/app.py"'),
+                                "--kind", "tests", "--fail-under", "0.5")
+        self.assertEqual(rc, 1, out)  # tests-for never answers with the file it was asked about
+        self.assertIn("below the floor", out)
+
     def test_compare_reads_a_config_the_other_side_rejects(self) -> None:
-        probe = subprocess.run(["git", "-C", str(ROOT), "archive", "--format=tar", "HEAD", "src"],
+        rev = "v0.2.0"  # the last release that rejects a key it does not know
+        probe = subprocess.run(["git", "-C", str(ROOT), "archive", "--format=tar", rev, "src"],
                                capture_output=True, check=False)
         if probe.returncode != 0 or not probe.stdout:
-            self.skipTest("git archive of this checkout's src/ at HEAD is not available")
+            self.skipTest(f"git archive of src/ at {rev} is not available (a shallow clone has no tags)")
         repo = TempRepo({**FILES, "topomark.toml": FUTURE_CONFIG})
         try:
-            rc, out = self.run_eval(TASKS, "--compare", "HEAD", "--json", repo=repo.root)
+            rc, out = self.run_eval(TASKS, "--compare", rev, "--json", repo=repo.root)
         finally:
             repo.close()
         self.assertEqual(rc, 0, out)
         data = json.loads(out)
         mine = {r["id"]: r for r in data["tasks"]}
         theirs = {r["id"]: r for r in data["compare"]["tasks"]}
-        self.assertEqual(data["compare"]["rev"], "HEAD")
+        self.assertEqual(data["compare"]["rev"], rev)
         self.assertEqual(set(mine), set(theirs))
-        # This side reads topomark.toml as it is: every task that runs is a CONFIG error, not a miss.
-        self.assertEqual(mine["find-router"]["status"], "error")
-        self.assertTrue(mine["find-router"]["reason"].startswith("CONFIG:"), mine["find-router"])
+        # This side reads the file as it is: it warns about the key and runs.
+        self.assertEqual(mine["find-router"]["status"], "ok")
         self.assertEqual(data["config_dropped"], {})
-        s = data["summary"]["all"]
-        self.assertEqual((s["scored"], s["errors"]), (0, s["tasks"] - s["skipped"]))
+        self.assertEqual(data["summary"]["all"]["errors"], 0)
         # The --compare side drops the key it rejects and runs.
         self.assertEqual(data["compare"]["config_dropped"], {"self": ["tests.runner[0].from_the_future"]})
         self.assertEqual(theirs["find-router"]["status"], "ok")
@@ -246,7 +267,6 @@ class EvalNavTest(unittest.TestCase):
         self.assertEqual(theirs["tests-app"]["rank"], 1)
         self.assertEqual(data["compare"]["summary"]["all"]["errors"], 0)
         text = self.ev.render(data, data["compare"])
-        self.assertIn("(error: CONFIG:", text)
         self.assertIn("without tests.runner[0].from_the_future", text)
 
 

@@ -33,10 +33,20 @@ from typing import Callable
 
 from .errors import TopomarkError
 
+# Matched against the lower-cased path, so `Keys/` and `ID_RSA` are caught too.
 SECRET_PATTERNS: tuple[str, ...] = (
-    "keys/", ".ssh/", "ssh_config", ".env", ".env.*", "*.pem", "*.key", "*.p12", "*.pfx",
-    "*.keystore", "*.jks", "id_rsa*", "id_ed25519*", "id_ecdsa*", "credentials*", "*.secret",
-    "*secret*.json", "ssh-hosts.json", ".netrc", ".npmrc", ".pypirc",
+    ".ssh/", "ssh_config", ".env", ".env.*", "*.pem", "*.key", "*.p12", "*.pfx",
+    "*.keystore", "*.jks", "id_rsa*", "id_ed25519*", "id_ecdsa*", "*.secret",
+    "*secret*.json", "secrets.yaml", "secrets.yml", "*.secrets.yaml", "*.secrets.yml", "ssh-hosts.json",
+    ".netrc", ".npmrc", ".pypirc", ".git-credentials", "service-account*.json", "*.tfvars", "*.tfvars.json",
+    "kubeconfig*",
+)
+# Names that say "secret" about a data file but are ordinary names for source code
+# (`src/auth/credentials.py`, `src/keys/bindings.ts`): secret unless the file is source code.
+SECRET_NAME_PATTERNS: tuple[str, ...] = ("keys/", "credentials*")
+SOURCE_EXT: tuple[str, ...] = (
+    ".py", ".pyi", ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts", ".cs", ".java", ".kt", ".kts",
+    ".swift", ".dart", ".go", ".rs", ".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".hh", ".m", ".mm",
 )
 
 DEFAULT_EXCLUDES: tuple[str, ...] = (
@@ -131,7 +141,10 @@ def matches_any(path: str, patterns: tuple[str, ...] | list[str]) -> bool:
 
 
 def is_secret(path: str) -> bool:
-    return matches_any(path, SECRET_PATTERNS)
+    low = path.lower()
+    if matches_any(low, SECRET_PATTERNS):
+        return True
+    return matches_any(low, SECRET_NAME_PATTERNS) and not low.endswith(SOURCE_EXT)
 
 
 def find_root(start: str | os.PathLike[str] | None) -> Path:
@@ -153,6 +166,35 @@ def git(root: Path, *args: str, input_text: str | None = None, check: bool = Tru
                           encoding="utf-8", errors="replace", input=input_text, check=check).stdout
 
 
+def git_objects(root: Path, specs: list[str]) -> dict[str, str | None]:
+    """The text of several git objects (``HEAD:src/a.py``, ``:src/a.py`` for the index, a blob id)
+    from one ``git cat-file --batch`` process; None for an object git does not have. Text is
+    decoded as UTF-8 with CRLF read as LF, like ``read_text``."""
+    plain = [s for s in specs if "\n" not in s]
+    out: dict[str, str | None] = {s: None for s in specs}
+    if plain:
+        data = subprocess.run(["git", "-C", str(root), "cat-file", "--batch"], capture_output=True,
+                              input=("\n".join(plain) + "\n").encode("utf-8"), check=False).stdout
+        pos = 0
+        for spec in plain:
+            end = data.find(b"\n", pos)
+            if end < 0:
+                break
+            head = data[pos:end].split()
+            pos = end + 1
+            if len(head) != 3 or not head[2].isdigit():
+                continue  # "<spec> missing", or ambiguous: no content follows
+            size = int(head[2])
+            if head[1] == b"blob":
+                out[spec] = data[pos:pos + size].decode("utf-8", errors="replace").replace("\r\n", "\n")
+            pos += size + 1
+    for spec in specs:
+        if "\n" in spec:  # a newline in a path cannot be written on a batch line
+            done = subprocess.run(["git", "-C", str(root), "cat-file", "blob", spec], capture_output=True, check=False)
+            out[spec] = done.stdout.decode("utf-8", errors="replace").replace("\r\n", "\n") if done.returncode == 0 else None
+    return out
+
+
 _PLAIN: dict[str, frozenset[str]] = {}  # root -> files git_files saw as regular files, no link on the way
 
 
@@ -162,12 +204,11 @@ def git_files(root: Path) -> list[str]:
     resolves to a file inside the repository that does not look secret (a secret-looking
     name itself stays: it is listed, never read). The rest are remembered as plain files,
     which ``safe_path`` then opens without another system call."""
-    tracked = git(root, "ls-files", "-z").split("\0")
-    others = git(root, "ls-files", "-z", "--others", "--exclude-standard").split("\0")
+    listed = git(root, "ls-files", "-z", "--cached", "--others", "--exclude-standard").split("\0")
     seen = set()
     out = []
     plain = set()
-    for f in tracked + others:
+    for f in listed:
         if not f or f in seen:
             continue
         seen.add(f)
@@ -253,8 +294,63 @@ def read_text(root: Path, path: str) -> str:
         return fh.read().replace("\r\n", "\n")
 
 
+def user_path(root: Path, raw: str) -> str:
+    """A user-supplied path → repo-relative POSIX path.
+
+    An absolute path, or a relative one that exists from the current directory, is resolved
+    and must lie inside the repository. Any other relative path is taken as repo-relative
+    (what ``-C`` callers mean): ``./`` prefixes and ``a/../b`` are normalised, a trailing ``/``
+    is kept. A path that leads out of the repository is NOT_FOUND."""
+    import posixpath
+
+    def outside() -> TopomarkError:
+        return TopomarkError("NOT_FOUND", f"{raw} is outside the repository ({root})")
+
+    p = Path(raw)
+    if p.is_absolute() or os.path.exists(raw):
+        try:
+            return Path(os.path.abspath(raw)).resolve().relative_to(root.resolve()).as_posix()
+        except ValueError:
+            if p.is_absolute():
+                raise outside() from None
+            # outside when read from the current directory: maybe repo-relative (with -C)
+    s = raw.replace("\\", "/")
+    while s.startswith("./"):
+        s = s[2:]
+    if not s:
+        return s
+    norm = posixpath.normpath(s)
+    if norm == ".." or norm.startswith(("../", "/")):
+        raise outside()
+    return norm + "/" if s.endswith("/") and norm != "." else norm
+
+
+def outside(path: str) -> bool:
+    """True if repo-relative ``path`` names nothing inside the repository (absolute, or climbing with ``..``)."""
+    return _outside(path)
+
+
 def write_text(root: Path, path: str, text: str) -> None:
+    if _outside(path):
+        raise TopomarkError("REFUSED", f"refusing to write outside the repository: {path}")
     full = root / path
     full.parent.mkdir(parents=True, exist_ok=True)
-    with open(full, "w", encoding="utf-8", newline="\n") as fh:
-        fh.write(text)
+    if full.is_symlink():  # write through the link, as before; replacing would put a file in its place
+        with open(full, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(text)
+        return
+    # the whole file or none of it: a run that is killed half way must not leave a cut-off
+    # stamps.json or area file behind
+    tmp = full.with_name(f".{full.name}.{os.getpid()}.tmp")
+    try:
+        with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(text)
+        if full.exists():
+            os.chmod(tmp, stat.S_IMODE(full.stat().st_mode))
+        os.replace(tmp, full)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise

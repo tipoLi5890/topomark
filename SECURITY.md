@@ -15,10 +15,14 @@ never moves a secret into that output and never changes the code it maps.
 ### Secret-path refusal
 
 Paths that look like secrets are never read, parsed, cached or listed as code, and the list cannot
-be switched off by configuration: `keys/`, `.ssh/`, `ssh_config`, `.env`, `.env.*`, `*.pem`, `*.key`,
-`*.p12`, `*.pfx`, `*.keystore`, `*.jks`, `id_rsa*`, `id_ed25519*`, `id_ecdsa*`, `credentials*`,
-`*.secret`, `*secret*.json`, `ssh-hosts.json`, `.netrc`, `.npmrc`, `.pypirc`. Reading one through
-the internal API raises `REFUSED`. `topomark doctor` warns when git tracks such files.
+be switched off by configuration:
+`.ssh/`, `ssh_config`, `.env`, `.env.*`, `*.pem`, `*.key`, `*.p12`, `*.pfx`, `*.keystore`, `*.jks`,
+`id_rsa*`, `id_ed25519*`, `id_ecdsa*`, `*.secret`, `*secret*.json`, `secrets.yaml`, `secrets.yml`,
+`*.secrets.yaml`, `*.secrets.yml`, `ssh-hosts.json`, `.netrc`, `.npmrc`, `.pypirc`, `.git-credentials`,
+`service-account*.json`, `*.tfvars`, `*.tfvars.json`, `kubeconfig*`, matched without regard to case.
+`keys/` and `credentials*` count too, except for source code (`src/auth/credentials.py`,
+`src/keys/bindings.ts`): a name alone does not make a source file a secret.
+Reading one through the internal API raises `REFUSED`. `topomark doctor` warns when git tracks such files.
 
 Secrets inside ordinary source files (a hard-coded token) are not detected; topomark is not a
 secret scanner. `outline` and `symbol` print constant values, so treat their output like the source.

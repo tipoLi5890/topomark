@@ -127,6 +127,39 @@ class RemovedLangTest(unittest.TestCase):
             self.assertEqual(d["error"]["code"], "CONFIG")
 
 
+class UnknownConfigKeyTest(unittest.TestCase):
+    """A topomark.toml written for a newer topomark still works: what this one does not know is
+    ignored with a warning; a value of the wrong type is still a config error."""
+
+    FUTURE = ('[topomark]\ndocs_dir = "docs/map"\ncolour = "red"\n\n[legacy]\nx = 1\n\n'
+              '[[tests.runner]]\nmatch = "tests/"\ncommand = "pytest {names}"\nretries = 2\n')
+
+    def test_unknown_names_warn_once_on_stderr_and_are_ignored(self) -> None:
+        with TempRepo({"a.py": "def run():\n    pass\n", "topomark.toml": self.FUTURE}) as r:
+            rc, out, err = r.cli("outline", "a.py")
+            self.assertEqual(rc, 0, err)
+            self.assertIn("def run()", out)
+            for name in ("unknown section [legacy]", "unknown key topomark.colour", "tests.runner[0] unknown keys ['retries']"):
+                self.assertEqual(err.count(f"warning: topomark.toml: {name}"), 1, err)
+            d = r.json("outline", "a.py")  # --json: stdout is still one object, the warning stays on stderr
+            self.assertEqual(d["command"], "outline")
+            self.assertEqual(r.cli("outline", "a.py", "--quiet")[2], "")
+            self.assertEqual(r.json("init", "--dry-run")["docs_dir"], "docs/map")  # the known keys are read
+
+    def test_wrong_types_are_config_errors(self) -> None:
+        runner = '[[tests.runner]]\nmatch = "t/"\ncommand = "x"\n'
+        for text, says in (('[topomark]\nl0_max = "many"\n', "l0_max must be a positive integer"),
+                           ('[files]\ninclude_default_excludes = "no"\n', "include_default_excludes must be true or false"),
+                           (runner + 'max_names = "many"\n', "tests.runner[0] max_names must be a positive integer"),
+                           (runner + "max_names = 0\n", "tests.runner[0] max_names must be a positive integer"),
+                           (runner + "join = 5\n", "tests.runner[0] join must be a string"),
+                           ('topomark = "x"\n', "[topomark] must be a table")):
+            with self.subTest(config=text), TempRepo({"a.py": "X = 1\n", "topomark.toml": text}) as r:
+                err = r.json("outline", "a.py", expect=3)["error"]
+                self.assertEqual(err["code"], "CONFIG")
+                self.assertIn(says, err["message"])
+
+
 class DraftTest(unittest.TestCase):
     def test_draft_prints_rows_and_write_makes_not_listed_disappear(self) -> None:
         with TempRepo(CODE) as r:

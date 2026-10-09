@@ -1,8 +1,10 @@
 # Configuration reference: `topomark.toml`
 
 `topomark.toml` lives at the repository root (or wherever `--config PATH` points). Every key is
-optional; a repository without the file gets the defaults below. Unknown sections and keys are a
-`CONFIG` error (exit 3), so a typo cannot silently do nothing.
+optional; a repository without the file gets the defaults below. A section or key this version
+does not know is ignored with one `warning:` line on stderr (`--quiet` hides it), so a file written
+for a newer topomark still works with an older one and a typo is still pointed out. A value of the
+wrong type is a `CONFIG` error (exit 3).
 
 Areas are **not** configured here. Each area file's frontmatter (`area`, `title`, `summary`,
 `scope`, `granularity`, `depth`) is the single source of truth for ownership; see
@@ -65,10 +67,13 @@ Built-in excludes: `.git/`, `node_modules/`, `.venv*/`, `venv/`, `__pycache__/`,
 `.tipo-harness/`, `**/vendor/**`, `**/generated/**`, `*.generated.*`, `*.min.js`, `*.min.css`,
 `**/archive/**`, `*.meta`, `.topomark/`.
 
-Secret-looking paths are never read or listed, whatever the config says: `keys/`, `.ssh/`,
-`ssh_config`, `.env`, `.env.*`, `*.pem`, `*.key`, `*.p12`, `*.pfx`, `*.keystore`, `*.jks`, `id_rsa*`,
-`id_ed25519*`, `id_ecdsa*`, `credentials*`, `*.secret`, `*secret*.json`, `ssh-hosts.json`, `.netrc`,
-`.npmrc`, `.pypirc`.
+Secret-looking paths are never read or listed, whatever the config says:
+`.ssh/`, `ssh_config`, `.env`, `.env.*`, `*.pem`, `*.key`, `*.p12`, `*.pfx`, `*.keystore`, `*.jks`,
+`id_rsa*`, `id_ed25519*`, `id_ecdsa*`, `*.secret`, `*secret*.json`, `secrets.yaml`, `secrets.yml`,
+`*.secrets.yaml`, `*.secrets.yml`, `ssh-hosts.json`, `.netrc`, `.npmrc`, `.pypirc`, `.git-credentials`,
+`service-account*.json`, `*.tfvars`, `*.tfvars.json`, `kubeconfig*`, matched without regard to case.
+`keys/` and `credentials*` count too, except for source code (`src/auth/credentials.py`,
+`src/keys/bindings.ts`): a name alone does not make a source file a secret.
 
 ### Glob syntax
 

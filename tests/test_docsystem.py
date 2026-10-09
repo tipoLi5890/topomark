@@ -4,6 +4,7 @@ stamp), dir granularity, owner, hook."""
 
 from __future__ import annotations
 
+import json
 import os
 import unittest
 
@@ -130,6 +131,39 @@ class DocSystemTest(unittest.TestCase):
         self.assertTrue(any("remove" in line for line in diff["files"][0]["interface_diff"]))
         self.assertEqual(r.cli("stamp", "src/core/router.py")[0], 0)
         self.assertTrue(r.json("check")["ok"])
+
+    def test_stamps_file_with_conflict_markers_is_a_config_error(self) -> None:
+        r = self.repo
+        self.assertEqual(r.cli("stamp", "--baseline")[0], 0)
+        r.write({"docs/codemap/stamps.json": "<<<<<<< HEAD\n" + r.read("docs/codemap/stamps.json") + ">>>>>>> other\n"})
+        err = r.json("check", expect=3)["error"]
+        self.assertEqual(err["code"], "CONFIG")
+        self.assertIn("docs/codemap/stamps.json is not valid JSON", err["message"])
+
+    def test_a_stamp_from_another_reading_of_the_same_code_is_not_a_change(self) -> None:
+        """After an adapter upgrade the stamped hash differs although nobody touched the file: the
+        reviewed blob, read with today's adapter, decides."""
+        r = self.repo
+        for step in ("gen", "sync"):
+            self.assertEqual(r.cli(step)[0], 0)
+        self.assertEqual(r.cli("stamp", "--baseline")[0], 0)
+        stamps = json.loads(r.read("docs/codemap/stamps.json"))
+        unit = "src/core/router.py"
+        stamps["units"][unit]["surface"] = "0" * 16  # what an older adapter would have recorded
+        r.write({"docs/codemap/stamps.json": json.dumps(stamps)})
+        self.assertTrue(r.json("check")["ok"])  # same content as reviewed
+        self.assertIn("interface unchanged since review", r.cli("diff", unit)[1])
+        r.write({unit: CODE[unit].replace("self.routes[path] = handler", "self.routes[path] = handler  # noop")})
+        self.assertTrue(r.json("check")["ok"])  # body only: the old blob reads the same today
+        self.assertEqual(r.json("stale")["body_changed"], {"core": [unit]})
+        r.write({unit: CODE[unit] + "\n        def remove(self, path):\n            pass\n"})
+        self.assertEqual([p["code"] for p in r.json("check", expect=1)["problems"]], ["STAMP_CHANGED"])
+        self.assertIn("interface CHANGED since review", r.cli("diff", unit)[1])
+        # without a record of what was reviewed, the hashes decide
+        r.write({unit: CODE[unit]})
+        del stamps["units"][unit]["blobs"]
+        r.write({"docs/codemap/stamps.json": json.dumps(stamps)})
+        self.assertEqual([p["code"] for p in r.json("check", expect=1)["problems"]], ["STAMP_CHANGED"])
 
     def test_new_file_must_be_listed_and_stamped(self) -> None:
         r = self.repo

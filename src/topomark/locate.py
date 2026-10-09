@@ -75,7 +75,7 @@ _TIER = {"code": 0, "test": 1, "doc": 2}
 
 
 def _group(nav, path: str) -> str:
-    from .navigate import NON_CODE_LANGS
+    from .masking import NON_CODE_LANGS
 
     info = nav.infos.get(path)
     if info is None or info.lang in NON_CODE_LANGS:

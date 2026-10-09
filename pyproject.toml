@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 # The distribution, the import package and the CLI command are all `topomark`;
 # keep the three in lockstep.
 name = "topomark"
-version = "0.2.0"
+version = "0.3.0"
 description = "A zero-dependency code map for AI coding agents: progressive-disclosure docs, per-file review stamps that catch stale summaries, and fast symbol/impact/test navigation for any repo."
 requires-python = ">=3.11"
 readme = "README.md"
@@ -55,7 +55,34 @@ select = ["E4", "E7", "E9", "F", "W"]
 
 [tool.mypy]
 python_version = "3.11"
-files = ["src/topomark/errors.py", "src/topomark/contract.py", "src/topomark/config.py", "src/topomark/repo.py"]
+# Every module that passes `disallow_untyped_defs` today; add a module here once its last untyped def is gone.
+files = [
+  "src/topomark/__init__.py",
+  "src/topomark/__main__.py",
+  "src/topomark/cli.py",
+  "src/topomark/commands/__init__.py",
+  "src/topomark/commands/_common.py",
+  "src/topomark/config.py",
+  "src/topomark/context.py",
+  "src/topomark/contract.py",
+  "src/topomark/docs.py",
+  "src/topomark/errors.py",
+  "src/topomark/graph.py",
+  "src/topomark/imports.py",
+  "src/topomark/lang/_decl.py",
+  "src/topomark/lang/base.py",
+  "src/topomark/lang/csharp.py",
+  "src/topomark/lang/python.py",
+  "src/topomark/lang/registry.py",
+  "src/topomark/lang/rust.py",
+  "src/topomark/lang/swift.py",
+  "src/topomark/masking.py",
+  "src/topomark/ranking.py",
+  "src/topomark/repo.py",
+  "src/topomark/runners.py",
+  "src/topomark/stamps.py",
+  "src/topomark/testsel.py",
+]
 disallow_untyped_defs = true
 follow_imports = "silent"
 ignore_missing_imports = true

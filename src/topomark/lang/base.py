@@ -14,6 +14,8 @@ An adapter turns ``(path, text)`` into a ``FileInfo``:
 * ``idents``: identifiers in code (comments and strings masked out), used for
   references and fan-in.
 * ``types``: top-level type names this file declares, the unit of fan-in.
+* ``degraded``: empty, or why the outline may be incomplete (an adapter reads
+  text, it does not parse: a bracket that never closes hides what follows it).
 * ``imports``: module specifiers exactly as written (Python ``a.b``, ``.x``,
   ``..``; JS/TS ``./x``, ``react``), ``DYNAMIC`` when a module is loaded by a
   computed name. Resolved to files by ``navigate``; never part of the surface,
@@ -63,6 +65,7 @@ class FileInfo:
     types: list[str] = field(default_factory=list)
     line_count: int = 0
     imports: list[str] = field(default_factory=list)
+    degraded: str = ""
 
     def to_json(self) -> dict:
         return {
@@ -73,17 +76,26 @@ class FileInfo:
             "symbols": [s.to_json() for s in self.symbols],
             "types": self.types,
             "imports": self.imports,
+            **({"degraded": self.degraded} if self.degraded else {}),
         }
 
     @classmethod
     def from_json(cls, d: dict, idents: list[str], surface: str) -> "FileInfo":
         syms = [Symbol(**{**{"container": "", "attrs": [], "doc": ""}, **s}) for s in d["symbols"]]
         return cls(path=d["path"], lang=d["lang"], header=d["header"], symbols=syms, surface=surface,
-                   idents=set(idents), types=d["types"], line_count=d["line_count"], imports=d.get("imports", []))
+                   idents=set(idents), types=d["types"], line_count=d["line_count"], imports=d.get("imports", []),
+                   degraded=d.get("degraded", ""))
 
 
 def norm(s: str) -> str:
     return _WS.sub(" ", s).strip()
+
+
+SIGNATURE_MAX = 200  # characters of a signature that outlines show; the surface keeps all of it
+
+
+def clip_signature(s: str) -> str:
+    return s if len(s) <= SIGNATURE_MAX else s[:SIGNATURE_MAX - 1] + "…"
 
 
 def norm_lines(lines: list[str]) -> list[str]:

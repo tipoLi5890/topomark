@@ -2,7 +2,7 @@
   "name": "topomark",
   "displayName": "topomark: a code map for AI coding agents",
   "description": "A zero-dependency code map for AI coding agents: progressive-disclosure docs, per-file review stamps that catch stale summaries, and fast symbol/impact/test navigation for any repo.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "repository": "https://github.com/tipoLi5890/topomark",
   "homepage": "https://github.com/tipoLi5890/topomark",
   "license": "MIT",

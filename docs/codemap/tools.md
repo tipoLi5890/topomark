@@ -29,7 +29,7 @@ measure:  synth_repo.py OUT -> eval_nav.py (tasks.toml, in-process CLI) / bench_
 | file | summary | impact |
 |---|---|---|
 | `tools/bench_nav.py` | Warm wall and CPU time of each navigation command and hook on a synthetic repo; checks what each hook prints (a wrong or missing hint is FAIL, exit 1); cProfile | fan-in 0/1. Case names refer to `tools/synth_repo.py` fixed files; `hook-post-edit-broken` runs in a scratch one-file repo; numbers go to `docs/pilots.md`. Expects the words "outline" (pre-read) and "syntax" (post-edit) in the hook text |
-| `tools/eval_nav.py` | Gold rank, hit@1/@5, output tokens per task, in process with a fresh temporary cache by default (`--cache`); errors are counted apart from misses, `expect = "miss"` tasks are controls; `--compare REV` swaps only `src/` (the tasks and this script stay) and drops config keys that REV rejects | fan-in 5/1. Task format is in its docstring; `tests/test_tools.py` runs it on a tiny repo |
+| `tools/eval_nav.py` | Gold rank, hit@1/@5, output tokens per task, in process with a fresh temporary cache by default (`--cache`); errors are counted apart from misses, `expect = "miss"` tasks are controls; `repo = "self"` tasks run on the `snapshot` revision `tasks.toml` names, exported without `tools/eval/` (`--repo DIR` for a directory as it is); a `locate` gold must still hold the message; `--fail-under` is CI's floor; `--compare REV` swaps only `src/` (the tasks and this script stay) and drops config keys that REV rejects | fan-in 0/1. Task format is in its docstring; `tests/test_tools.py` runs it on a tiny repo |
 | `tools/lint_skills.py` | SKILL.md frontmatter, name, description <= 700 chars, size <= 15 KiB, reference links; `py_compile` of `tools/*.py` and skill scripts, `bash -n` of skill `.sh` files | fan-in 0/0. CI gate; `CLAUDE.md` names it in Commands |
 | `tools/sync_codex_manifests.py` | Generate the Codex manifests from `.claude-plugin/plugin.json`; `--check` for CI | fan-in 0/0. Codex display text (`SHORT`, `LONG`, prompts) lives here |
 | `tools/sync_version.py` | Stamp pyproject's version into the plugin manifests; `--check` for CI | fan-in 0/0. Step 2 of the release list in `CLAUDE.md` |
@@ -42,7 +42,10 @@ measure:  synth_repo.py OUT -> eval_nav.py (tasks.toml, in-process CLI) / bench_
 
 ## Change checklist
 - New eval task: write it the way an agent would ask, before tuning; gold `path#Qual.Name` must exist
-  (the eval refuses stale golds with exit 2). See `CONTRIBUTING.md`, "Measuring navigation changes".
+  at the snapshot (the eval refuses stale golds with exit 2). See `CONTRIBUTING.md`, "Measuring
+  navigation changes".
+- Moving `snapshot` in `tools/eval/tasks.toml`: fix the golds that moved, rerun, record the numbers in
+  `docs/pilots.md`, and reset the floor in `.github/workflows/ci.yml` (`--fail-under`).
 - A fixed file in `tools/synth_repo.py` changes: the eval's synth tasks and `bench_nav.py` cases.
 - Changing what the gates check: `CLAUDE.md` "Commands" and the CI workflow.
 

@@ -14,7 +14,7 @@ from typing import Any
 
 from .contract import CONFIG_FILE
 from .errors import TopomarkError
-from .repo import DEFAULT_EXCLUDES
+from .repo import DEFAULT_EXCLUDES, outside
 
 # Extensions treated as code when no `required_ext` is configured. The language
 # registry may support more; these are the ones that need a row in the code map.
@@ -37,6 +37,7 @@ _ALLOWED = {
     "tests": {"patterns", "runner"},
 }
 _RUNNER_KEYS = {"match", "command", "names", "join", "max_names", "fallback", "suite"}
+_IGNORED = "(ignored: this topomark does not know it; a newer one may)"
 
 
 @dataclass
@@ -74,6 +75,8 @@ class Config:
     mention_roots: list[str] = field(default_factory=lambda: ["docs/"])
     test_patterns: tuple[str, ...] = DEFAULT_TEST_PATTERNS
     runners: list[TestRunner] = field(default_factory=list)
+    # what the file holds that this version does not know (a newer topomark's keys): ignored, and said once
+    warnings: list[str] = field(default_factory=list)
 
     @property
     def docs_prefix(self) -> str:
@@ -104,16 +107,20 @@ class Config:
         if isinstance(top, dict) and "lang" in top:
             raise TopomarkError("CONFIG", f"{where}: [topomark] lang was removed: topomark writes English only. "
                                           "Delete the `lang = ...` line.")
+        cfg = cls(root=root, path=path)
         for section, keys in raw.items():
             if section not in _ALLOWED:
-                raise TopomarkError("CONFIG", f"{where}: unknown section [{section}]")
+                cfg.warnings.append(f"{where}: unknown section [{section}] {_IGNORED}")
+                continue
             if not isinstance(keys, dict):
                 raise TopomarkError("CONFIG", f"{where}: [{section}] must be a table")
             for k in keys:
                 if k not in _ALLOWED[section]:
-                    raise TopomarkError("CONFIG", f"{where}: unknown key {section}.{k}")
-        cfg = cls(root=root, path=path)
+                    cfg.warnings.append(f"{where}: unknown key {section}.{k} {_IGNORED}")
         cfg.docs_dir = _str(top, "docs_dir", cfg.docs_dir, where).strip("/")
+        if outside(cfg.docs_dir):
+            raise TopomarkError("CONFIG", f"{where}: docs_dir must be a folder inside the repository, "
+                                          f"not {cfg.docs_dir!r}")
         cfg.l0_max = _int(top, "l0_max", cfg.l0_max, where)
         cfg.l1_max = _int(top, "l1_max", cfg.l1_max, where)
         cfg.min_name = _int(top, "min_name", cfg.min_name, where)
@@ -123,7 +130,10 @@ class Config:
             cfg.required_ext = tuple(e if e.startswith(".") else "." + e for e in _strs(files, "required_ext", [], where))
         cfg.every_file_roots = _strs(files, "every_file_roots", [], where)
         extra = tuple(_strs(files, "exclude", [], where))
-        if files.get("include_default_excludes", True) is False:
+        defaults_too = files.get("include_default_excludes", True)
+        if not isinstance(defaults_too, bool):
+            raise TopomarkError("CONFIG", f"{where}: include_default_excludes must be true or false")
+        if defaults_too is False:
             cfg.exclude = extra
         else:
             cfg.exclude = DEFAULT_EXCLUDES + extra
@@ -141,30 +151,32 @@ class Config:
                 raise TopomarkError("CONFIG", f"{where}: tests.runner[{i}] needs `match` and `command`")
             unknown = set(r) - _RUNNER_KEYS
             if unknown:
-                raise TopomarkError("CONFIG", f"{where}: tests.runner[{i}] unknown keys {sorted(unknown)}")
-            if not isinstance(r.get("suite", ""), str):
-                raise TopomarkError("CONFIG", f"{where}: tests.runner[{i}] suite must be a string")
-            runner = TestRunner(match=str(r["match"]), command=str(r["command"]),
-                                names=str(r.get("names", "file")), join=str(r.get("join", " ")),
-                                max_names=int(r.get("max_names", 20)), fallback=str(r.get("fallback", "file")),
-                                suite=r.get("suite", ""))
+                cfg.warnings.append(f"{where}: tests.runner[{i}] unknown keys {sorted(unknown)} {_IGNORED}")
+            at = f"{where}: tests.runner[{i}]"
+            runner = TestRunner(match=_str(r, "match", "", at), command=_str(r, "command", "", at),
+                                names=_str(r, "names", "file", at), join=_str(r, "join", " ", at),
+                                max_names=_int(r, "max_names", 20, at), fallback=_str(r, "fallback", "file", at),
+                                suite=_str(r, "suite", "", at))
             if runner.names not in ("file", "class", "method") or runner.fallback not in ("file", "class"):
                 raise TopomarkError("CONFIG", f"{where}: tests.runner[{i}] names/fallback must be file|class|method")
             cfg.runners.append(runner)
         return cfg
 
 
+_SEP = {False: ": ", True: " "}  # "topomark.toml: key ..." / "topomark.toml: tests.runner[0] key ..."
+
+
 def _str(d: dict[str, Any], key: str, default: str, where: str) -> str:
     v = d.get(key, default)
     if not isinstance(v, str):
-        raise TopomarkError("CONFIG", f"{where}: {key} must be a string")
+        raise TopomarkError("CONFIG", f"{where}{_SEP[where[-1:] == ']']}{key} must be a string")
     return v
 
 
 def _int(d: dict[str, Any], key: str, default: int, where: str) -> int:
     v = d.get(key, default)
     if not isinstance(v, int) or isinstance(v, bool) or v <= 0:
-        raise TopomarkError("CONFIG", f"{where}: {key} must be a positive integer")
+        raise TopomarkError("CONFIG", f"{where}{_SEP[where[-1:] == ']']}{key} must be a positive integer")
     return v
 
 

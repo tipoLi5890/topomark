@@ -41,11 +41,14 @@ class Python:
         stack: list[tuple[int, str, Symbol | None]] = []  # (indent, kind, symbol)
         pending_decorators: list[int] = []
         depth = 0  # open brackets carried over from previous lines (multi-line signatures, literals)
+        opened = 0  # the line whose bracket is still open
         for idx, ml in enumerate(mlines):
             stripped = ml.strip()
             carried = depth
             if stripped:
                 depth = max(0, depth + _bracket_delta(ml))
+                if carried == 0 and depth > 0:
+                    opened = idx + 1
             if not stripped or carried > 0:
                 continue
             indent = len(ml) - len(ml.lstrip())
@@ -97,6 +100,9 @@ class Python:
         info.surface = surface_text(header, decls)
         info.types = [s.name for s in symbols if not s.container and s.kind in ("class", "function") and s.exported]
         info.imports = python_imports(m.text, text)
+        if depth > 0:
+            info.degraded = (f"a bracket opened on line {opened} never closes, as this adapter reads the file: "
+                             "declarations after it are not listed")
         return info
 
 

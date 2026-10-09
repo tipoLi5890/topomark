@@ -51,6 +51,8 @@ def _outline(info, path: str, args, depth: int | None, header_lines: int = 3) ->
     data = {"path": path, "lang": info.lang, "line_count": info.line_count, "header": info.header,
             "namespaces": namespaces, "count": len(shown), "total": sum(1 for s in info.symbols if s.kind != "namespace"),
             "symbols": [{**s.to_json(), "depth": depth_of(s)} for s in shown]}
+    if info.degraded:
+        data["degraded"] = info.degraded
     head = f"{path}  ({info.line_count} lines, {info.lang}" + (f", namespace {', '.join(namespaces)}" if namespaces else "") + ")"
     lines = [head]
     header = [h for h in info.header if h.strip()]
@@ -58,6 +60,8 @@ def _outline(info, path: str, args, depth: int | None, header_lines: int = 3) ->
         lines.append("  " + clip(h, 120))
     if len(header) > header_lines and header_lines > 1:
         lines.append(f"  … ({len(header) - header_lines} more header lines)")
+    if info.degraded:
+        lines.append(f"  warning: this outline may be incomplete: {info.degraded}")
     width = len(str(info.line_count or 1))
     for s in shown:
         rng = f"{s.start}-{s.end}".rjust(2 * width + 1)
@@ -74,7 +78,7 @@ def _targets(nav, ctx, raw_paths: list[str]) -> tuple[list[str], bool]:
     """The files to outline, and whether a directory was expanded."""
     from ..errors import TopomarkError
     from ..lang import registry
-    from ..navigate import NON_CODE_LANGS
+    from ..masking import NON_CODE_LANGS
 
     out: list[str] = []
     expanded = False

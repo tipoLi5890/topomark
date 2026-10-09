@@ -57,6 +57,7 @@ def register(sub, common) -> None:
 
 
 def run(args, ctx) -> Result:
+    args.quiet = True  # a hook says what it has to say in its answer, never on stderr (config warnings)
     try:
         handler = _HANDLERS.get(args.action)
         if handler is None:

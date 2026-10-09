@@ -36,19 +36,25 @@ drops the cache.
 | file | summary | impact |
 |---|---|---|
 | `src/topomark/lang/__init__.py` | Package marker | fan-in 0/0 |
-| `src/topomark/lang/base.py` | `Symbol` and `FileInfo`, header comment, surface text, doc summaries, `DYNAMIC` imports | fan-in 9/0. Field changes reach the cache packing in `src/topomark/index.py` (bump `CACHE_FORMAT`) |
-| `src/topomark/lang/brace.py` | Generic brace-language walker: headers to `classify_block`, statements to `classify_statement` | fan-in 3/1. Shared by C#, Java, JS/TS and `extra.py`: run `tests/test_lang.py` for every language |
-| `src/topomark/lang/csharp.py` | C# and Java: visibility, attributes, constants with values, enum members, inactive `#else` branches | fan-in 1/1. Run `tests/test_lang.py` and `tests/test_regressions.py` (prototype parity) |
-| `src/topomark/lang/extra.py` | Dart, Kotlin, Swift, Go, Rust and C/C++/Objective-C on the brace walker | fan-in 0/1. Run `tests/test_lang.py`; a new language here also goes into `BRACE_LANGS` in `src/topomark/syntax.py` |
-| `src/topomark/lang/js_ts.py` | JS/TS/JSX/TSX: ESM and CommonJS exports, export-default expressions, import specifiers | fan-in 0/0. Run `tests/test_lang.py`; import specifiers feed `navigate.ImportResolver` |
-| `src/topomark/lang/python.py` | Python by indentation: classes, functions, methods, UPPER constants, `__all__`, imports | fan-in 2/0. Run `tests/test_lang.py`; Python import specifiers feed `navigate.ImportResolver` too |
-| `src/topomark/lang/registry.py` | Extension to adapter map, `supported_extensions`, `analyze` | fan-in 14/4. New extension: list it in README, `.github/README.zh-Hant.md`, `docs/concepts.md`, `skills/topomark/reference/commands.md`, and `DEFAULT_CODE_EXT` in `src/topomark/config.py` if its files need rows |
-| `src/topomark/lang/scan.py` | Masking scanner per syntax: comments, strings, template literals, raw strings (Rust, C++, Swift `#"…"#`), offsets kept | fan-in 7/0. Run `tests/test_lang_scan.py`; a masking bug shows up as wrong refs and false syntax findings |
+| `src/topomark/lang/_decl.py` | What the adapters below share: `_sig` (signature up to the body), balanced skips, top-level splits, annotations, enum entries | fan-in 4/0. Used by `cfamily`, `dart`, `go`, `kotlin`, `rust`, `swift`: run `tests/test_lang.py` for all of them |
+| `src/topomark/lang/base.py` | `Symbol` and `FileInfo` (`degraded`: why an outline may be incomplete), header comment, surface text, `clip_signature` (what an outline shows of a long signature; the surface keeps all of it), doc summaries, `DYNAMIC` imports | fan-in 15/0. Field changes reach the cache packing in `src/topomark/index.py` (bump `CACHE_FORMAT`) |
+| `src/topomark/lang/brace.py` | Generic brace-language walker: headers to `classify_block`, statements to `classify_statement` | fan-in 8/1. Shared by C#, Java, JS/TS and the six adapter modules next to it: run `tests/test_lang.py` for every language |
+| `src/topomark/lang/cfamily.py` | C, C++ and Objective-C: types, functions and prototypes, macros, members by access label, `@interface` containers | fan-in 1/1. Run `tests/test_lang.py`; its patterns run on every header of a C repository: time them on real files (a nested quantifier once took seconds per file) |
+| `src/topomark/lang/csharp.py` | C# and Java: visibility, attributes, constants with values, fields named by their first declarator (commas inside type arguments belong to the type), tuple types and lambda-valued fields, enum members, inactive `#else` branches | fan-in 1/1. Run `tests/test_lang.py` and `tests/test_regressions.py` (prototype parity) |
+| `src/topomark/lang/dart.py` | Dart: classes, mixins, extensions, enums, getters and setters; exported unless the name starts with `_` | fan-in 0/0. Run `tests/test_lang.py` |
+| `src/topomark/lang/go.py` | Go: functions, methods by receiver, struct and interface types, const and var groups; exported by capital letter | fan-in 0/0. Run `tests/test_lang.py` |
+| `src/topomark/lang/js_ts.py` | JS/TS/JSX/TSX: ESM and CommonJS exports, export-default expressions, import specifiers | fan-in 0/0. Run `tests/test_lang.py`; import specifiers feed `imports.ImportResolver` |
+| `src/topomark/lang/kotlin.py` | Kotlin: classes, objects, interfaces, functions with receivers, properties | fan-in 1/1. Run `tests/test_lang.py` |
+| `src/topomark/lang/python.py` | Python by indentation: classes, functions, methods, UPPER constants, `__all__`, imports | fan-in 2/0. Run `tests/test_lang.py`; Python import specifiers feed `imports.ImportResolver` too |
+| `src/topomark/lang/registry.py` | Extension to adapter map, `supported_extensions`, `analyze` | fan-in 10/4. New extension: list it in README, `.github/README.zh-Hant.md`, `docs/concepts.md`, `skills/topomark/reference/commands.md`, and `DEFAULT_CODE_EXT` in `src/topomark/config.py` if its files need rows |
+| `src/topomark/lang/rust.py` | Rust: functions, structs, enums, traits, modules, `impl` blocks, macros; exported by `pub` | fan-in 0/0. Run `tests/test_lang.py` |
+| `src/topomark/lang/scan.py` | Masking scanner per syntax: comments, strings, template literals, raw strings (Rust, C++, Swift `#"…"#`), offsets kept | fan-in 13/0. Run `tests/test_lang_scan.py`; a masking bug shows up as wrong refs and false syntax findings |
 | `src/topomark/lang/simple.py` | Shell, SQL, data files (key skeleton), Markdown (headings), plain-text fallback | fan-in 1/1. Data and Markdown surfaces are what stamps hash for config and docs files |
+| `src/topomark/lang/swift.py` | Swift: types, extensions, functions, initialisers, properties, type aliases | fan-in 1/1. Run `tests/test_lang.py` |
 
 ## Interfaces and cross-area dependencies
 - Used by: [engine.md](engine.md) (`index.py` analyzes and caches, `navigate.py` masks and reads
-  imports, `syntax.py` masks for bracket checks through `navigate.mask_file`, `graph.py` reads
+  imports, `syntax.py` masks for bracket checks through `masking.mask_file`, `graph.py` reads
   `FileInfo`, `search.py` reads test bodies' identifiers with `base.IDENT`), `src/topomark/commands/outline.py`,
   `src/topomark/commands/agent_hook.py` (`registry.adapter_for`), `src/topomark/commands/draft.py`
   (`base.doc_summary`), `src/topomark/commands/diff.py` and `src/topomark/commands/changes.py` (old
@@ -56,8 +62,9 @@ drops the cache.
 - Depends on: the standard library only.
 
 ## Change checklist
-- New language: an adapter (a `BraceLanguage` subclass in `src/topomark/lang/extra.py`, or a module
-  registered in `registry._load`), fixtures under `tests/fixtures/lang/` with a `GOLDEN` entry in
+- New language: an adapter module of its own (a `BraceLanguage` subclass when the language has
+  braces) registered in `registry._load`, its name in `BRACE_LANGS` (`src/topomark/syntax.py`) for the
+  bracket check, fixtures under `tests/fixtures/lang/` with a `GOLDEN` entry in
   `tests/test_lang.py` (the fixture files and the `GOLDEN` keys must be the same set), the language lists in README, `.github/README.zh-Hant.md`, `docs/concepts.md`
   and `skills/topomark/reference/commands.md`, and `DEFAULT_CODE_EXT` in `src/topomark/config.py` if
   its files need rows by default.

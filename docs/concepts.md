@@ -48,6 +48,12 @@ topomark records, per unit, what the row was written against:
   signatures, constant values, enum members; for data files the key skeleton), and
 - the **git blob** of the content at review time, so `topomark diff` can show what changed since.
 
+A stamp records the surface hash and the git blob of each file as it was reviewed. When the hash no
+longer matches, `check` reads those blobs again with the adapters it has today and compares that
+with the files as they are now, so a topomark upgrade that reads a declaration differently does not
+ask for every row to be reviewed again, and nothing but a real difference between the reviewed code
+and today's code counts. Without the blobs (git pruned them) the hashes decide.
+
 `check` fails when a unit's surface changed since its stamp (`STAMP_CHANGED`), when a unit was never
 stamped (`STAMP_MISSING`) and when a stamp's unit is gone (`STAMP_ORPHAN`). A body-only change does
 not fail `check`; `topomark stale` lists it as advisory. Each area also stamps its set of cross-area
@@ -73,10 +79,12 @@ says what to update. `topomark sync` rewrites the numbers in area files, `topoma
 `_generated/fanin.md` (and `_generated/modules.md`, the module graph from `.asmdef` and
 `package.json` manifests).
 
-Import statements are a second, separate signal: `impact <file>` lists the files whose Python or
-JS/TS imports resolve to it, and `tests-for` follows them to the tests of a file that no test
-mentions. They never count toward fan-in or the cross-area edge stamps, so the numbers already
-written in area files do not move.
+Import statements are a second signal: `impact <file>` lists the files whose Python or JS/TS
+imports resolve to it, and `tests-for` follows them to the tests of a file that no test mentions.
+Between two Python files they also decide fan-in: a mention counts only when the file imports the
+declaring module (directly, or through a module that imports it and mentions the name), so a
+function named `search` is not credited with every `re.search` in the repository. Other languages
+are counted by name alone.
 
 ## Navigation without a code map
 

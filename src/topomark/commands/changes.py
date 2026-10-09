@@ -24,21 +24,26 @@ def register(sub, common) -> None:
     p.set_defaults(handler=run)
 
 
-def _sides(ctx, nav, path: str, status: str, base: str | None, staged: bool):
+def _specs(path: str, status: str, base: str | None, staged: bool) -> list[str]:
+    """The git objects ``_sides`` reads for one changed file."""
+    return ([f"{base}:{path}"] if status != "added" and base else []) + \
+           ([f":{path}"] if status != "deleted" and staged else [])
+
+
+def _sides(nav, path: str, status: str, base: str | None, staged: bool, objects: dict[str, str | None]):
     """(old FileInfo, new FileInfo, old lines, new lines) for one changed file; None where a side
-    does not exist or is too large to parse."""
+    does not exist or is too large to parse. ``objects`` holds the text of ``_specs``."""
     from ..index import MAX_BYTES
     from ..lang import registry
-    from ..repo import git
 
     old = new = old_lines = new_lines = None
     if status != "added" and base:
-        text = git(ctx.root, "show", f"{base}:{path}", check=False).replace("\r\n", "\n")
+        text = objects.get(f"{base}:{path}") or ""
         if len(text) <= MAX_BYTES:
             old, old_lines = registry.analyze(path, text), text.split("\n")
     if status != "deleted":
         if staged:
-            text = git(ctx.root, "show", f":{path}", check=False).replace("\r\n", "\n")
+            text = objects.get(f":{path}") or ""
             if len(text) <= MAX_BYTES:
                 new, new_lines = registry.analyze(path, text), text.split("\n")
         elif nav.exists(path):
@@ -67,9 +72,11 @@ def run(args, ctx) -> Result:
     from .. import changes as C
     from ..errors import TopomarkError
     from ..lang import registry
-    from ..navigate import (NON_CODE_LANGS, Nav, changed_files, clip, code_map_row, impact_symbol, runner_commands,
-                            select_tests)
-    from ..repo import git, is_secret, matches_any
+    from ..masking import NON_CODE_LANGS
+    from ..navigate import Nav, changed_files, clip, code_map_row, impact_symbol
+    from ..runners import runner_commands
+    from ..testsel import select_tests
+    from ..repo import git, git_objects, is_secret, matches_any
 
     if args.staged and args.since:
         raise TopomarkError("USAGE", "--staged and --since are alternatives; pick one")
@@ -83,6 +90,7 @@ def run(args, ctx) -> Result:
         base = "HEAD" if git(root, "rev-parse", "--verify", "-q", "HEAD", check=False).strip() else None
         diff_args, source = (["--cached"] if args.staged else ["HEAD"]), ("staged" if args.staged else "diff")
     out = git(root, "-c", "core.quotePath=false", "diff", "-U0", "--no-color", "--no-ext-diff", "--no-renames",
+              "--src-prefix=a/", "--dst-prefix=b/",  # the parser reads a/ and b/, whatever diff.noprefix says
               *diff_args, "--", check=False) if base or args.staged else ""
     diffs = C.parse_diff(out)
     for name in changed_files(ctx, staged=args.staged, since=args.since):
@@ -93,14 +101,19 @@ def run(args, ctx) -> Result:
     files: list[dict] = []
     other: list[dict] = []
     interface: list[tuple[str, dict]] = []
+    code: list[str] = []
     for path in sorted(diffs):
-        d = diffs[path]
         if is_secret(path) or matches_any(path, cfg.exclude):
             continue
         if getattr(registry.adapter_for(path), "name", "") in NON_CODE_LANGS or path.startswith(cfg.docs_prefix):
-            other.append({"path": path, "status": d.status})
+            other.append({"path": path, "status": diffs[path].status})
             continue
-        old, new, old_lines, new_lines = _sides(ctx, nav, path, d.status, base, args.staged)
+        code.append(path)
+    # every old (and staged) version in one git process, not one `git show` per file
+    objects = git_objects(root, [s for p in code for s in _specs(p, diffs[p].status, base, args.staged)])
+    for path in code:
+        d = diffs[path]
+        old, new, old_lines, new_lines = _sides(nav, path, d.status, base, args.staged, objects)
         syms, header, outside = C.classify(old, new, d, old_lines, new_lines)
         files.append({"path": path, "status": d.status, "lang": (new or old).lang if (new or old) else "",
                       "header_changed": header, "outside_declarations": outside and d.status == "modified",

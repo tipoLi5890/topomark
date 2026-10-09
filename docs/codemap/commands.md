@@ -17,13 +17,14 @@ scope:
 > Adding a command is the four steps in `CLAUDE.md` ("Adding a command").
 
 ## Read these first
-- `src/topomark/commands/__init__.py`: `_NAMES` (registry and `--help` order) and `Result`.
+- `src/topomark/commands/__init__.py`: `_NAMES` (`--help` order), the import list in
+  `COMMAND_MODULES()` and `Result`.
 - `src/topomark/commands/outline.py`: a small, typical navigation command.
 - `src/topomark/commands/agent_hook.py`: the one command that answers in another protocol.
 
 ## Data flow and entry points
 ```
-cli.build_parser() -> COMMAND_MODULES() imports topomark.commands.<name> for each of _NAMES
+cli.build_parser() -> COMMAND_MODULES() imports every command module (a written-out list), in _NAMES order
   module.register(sub, common): _common.add(...) a subparser, set_defaults(handler=run)
 cli.main -> run(args, ctx): heavy imports here (engine, lang) -> Result(data, text, exit)
 navigation:  outline symbol find search locate refs impact brief tests-for syntax changes map
@@ -37,12 +38,12 @@ tooling:     hook (.git/hooks/pre-commit)  agent-hook (stdin hook JSON)  doctor 
 ## Files
 | file | summary | impact |
 |---|---|---|
-| `src/topomark/commands/__init__.py` | Command registry `_NAMES`, `COMMAND_MODULES()` (a name whose module is missing is skipped, and `tests/test_meta.py` fails), the `Result` handlers return | fan-in 26/0. A new command goes in `_NAMES`; `tests/test_meta.py` checks every name registers and is described |
-| `src/topomark/commands/_common.py` | `add` (subparser with global flags), `rel` (user path to repo path: from the current directory if it exists there, else repo-relative; outside the repo is NOT_FOUND), `format_problems` | fan-in 2/0. Keep imports light: it loads for `--help` and for every hook call |
+| `src/topomark/commands/__init__.py` | Command registry: `_NAMES` (order) and `COMMAND_MODULES()` with its written-out import list (so `impact` and `tests-for` see who loads a command), the `Result` handlers return | fan-in 26/1. A new command goes in `_NAMES` and in the import list; `tests/test_meta.py` checks the two agree with the modules on disk and that every name registers and is described |
+| `src/topomark/commands/_common.py` | `add` (subparser with global flags), `rel` (user path to repo path, a wrapper of `repo.user_path`), `format_problems` | fan-in 2/0. Keep imports light: it loads for `--help` and for every hook call |
 | `src/topomark/commands/agent_hook.py` | Claude Code hooks: session-start pointer, pre-read hints once per session, post-edit syntax (quiet about Python when the project requires a newer one); stdin read up to 1 MB | fan-in 0/0. Must exit 0 and stay silent on any error; `hooks/hooks.json` calls it; run `tests/test_agent_hook.py` |
 | `src/topomark/commands/brief.py` | Budgeted briefing before an edit: area row, outline, coupled callers, tests, run command | fan-in 0/0. Run `tests/test_brief.py` and the eval's brief tasks |
 | `src/topomark/commands/capabilities.py` | Every command, argument and flag from the live parser, plus the exit-code table | fan-in 0/0. Run `tests/test_meta.py` |
-| `src/topomark/commands/changes.py` | Diff mapped to symbols: interface vs body, references left, tests, rows to review | fan-in 0/0. Run `tests/test_changes.py` |
+| `src/topomark/commands/changes.py` | Diff mapped to symbols (`git diff` with fixed `a/` `b/` prefixes): interface vs body, references left, tests, rows to review | fan-in 0/0. Run `tests/test_changes.py` |
 | `src/topomark/commands/check.py` | Print `Workspace.problems()`; exit 1 on any | fan-in 0/0. Run `tests/test_docsystem.py`; the pre-commit gate and CI smoke job run it |
 | `src/topomark/commands/diff.py` | What changed in a unit since its stamp: surface diff first, then the content diff command | fan-in 0/0. Run `tests/test_docsystem.py` |
 | `src/topomark/commands/doctor.py` | Python, git, repo, config, tracked secrets (a warning, never a failure), docs_dir, file counts and the cache directory; exit 1 on a failing check | fan-in 0/0. Covered only by `tests/test_meta.py` (JSON shape) |
@@ -51,7 +52,7 @@ tooling:     hook (.git/hooks/pre-commit)  agent-hook (stdin hook JSON)  doctor 
 | `src/topomark/commands/gen.py` | Rewrite `<docs_dir>/_generated/` (fan-in table, module graph) | fan-in 0/0. Run `tests/test_docsystem.py` |
 | `src/topomark/commands/hook.py` | Install, remove or report the opt-in git pre-commit gate: `check` runs whenever anything is staged, and only its exit 1 blocks the commit (exit 2 to 7 let it through) | fan-in 0/0. Keeps an existing hook as `pre-commit.local`; run `tests/test_docsystem.py` |
 | `src/topomark/commands/impact.py` | Render `impact_file` / `impact_symbol`: callers, importers, cross-area users, tests, docs | fan-in 0/0. Run `tests/test_navigation.py` and `tests/test_output_economy.py` |
-| `src/topomark/commands/init.py` | Detect stack and manifests, propose areas and excludes, write config and skeleton | fan-in 0/0. `--dry-run` writes nothing (CI checks); run `tests/test_init_draft.py` |
+| `src/topomark/commands/init.py` | Detect stack and manifests, propose areas and excludes, write config and skeleton; a `--docs-dir` outside the repository is a USAGE error | fan-in 0/0. `--dry-run` writes nothing (CI checks); run `tests/test_init_draft.py` |
 | `src/topomark/commands/locate.py` | Error message or stack trace (file or stdin) to code, via `topomark.locate` | fan-in 0/0. Run `tests/test_locate.py` |
 | `src/topomark/commands/map.py` | PageRank-ranked files and key signatures within a token budget | fan-in 0/0. Run `tests/test_navigation.py`; timing in `tools/bench_nav.py` |
 | `src/topomark/commands/outline.py` | Declarations with line ranges; several files or a directory at once within a budget | fan-in 0/0. Single-file JSON shape is a contract; run `tests/test_output_economy.py` |
@@ -77,7 +78,8 @@ tooling:     hook (.git/hooks/pre-commit)  agent-hook (stdin hook JSON)  doctor 
   version (`diff`, `changes`) or picks an adapter (`outline`, `agent-hook`).
 
 ## Change checklist
-- New command: module with `register` and `run`, name in `_NAMES`, a test with
+- New command: module with `register` and `run`, name in `_NAMES` and in `COMMAND_MODULES()`'s
+  import list, a test with
   `tests.harness.TempRepo`, a row in the README command table and `.github/README.zh-Hant.md`, the
   cheat sheet in `skills/topomark/SKILL.md`, `skills/topomark/reference/commands.md` for navigation
   commands, CHANGELOG `[Unreleased]`, and a row here.

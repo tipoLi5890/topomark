@@ -17,7 +17,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from .base import FileInfo, Symbol, doc_summary, head_comment, idents_of, norm, surface_text
+from .base import (SIGNATURE_MAX, FileInfo, Symbol, clip_signature, doc_summary, head_comment, idents_of, norm,
+                   surface_text)
 from .scan import Masked, Syntax, mask
 
 _ANNOTATION_ONLY = re.compile(r"^(?:@[\w.:]+(?:\s*\((?:[^()]|\([^()]*\))*\))?\s*)+$")
@@ -110,6 +111,10 @@ class BraceLanguage:
         """Hook: module specifiers this file imports (``FileInfo.imports``)."""
         return []
 
+    def degraded_of(self, masked: Masked) -> str:
+        """Hook: why the outline may be incomplete (``FileInfo.degraded``), "" when nothing says so."""
+        return ""
+
     def header_of(self, text: str) -> list[str]:
         if "#" not in self.syntax.line_comments and "#" in text:
             text = _PP_LINE.sub("", text)  # `#include`, `#if`, `#pragma` are not header comments
@@ -138,6 +143,7 @@ class BraceLanguage:
         info.types = list(dict.fromkeys(info.types))
         info.surface = surface_text(header, surface_decls + self.extra_surface(m))
         info.imports = self.imports_of(m)
+        info.degraded = self.degraded_of(m)
         return info
 
     functions_are_types = False  # JS/TS/Go: top-level exported functions are the unit of fan-in
@@ -247,6 +253,12 @@ class BraceLanguage:
         if d.at >= 0:  # one item of a statement list: locate it inside the statement
             decl_at, end, seg, lead = decl_at + d.at, decl_at + d.at + max(1, d.span), decl_at + d.at, 0
         sig = d.signature or norm(_strip_leading_attrs(raw[decl_at:end]))
+        if d.signature and len(sig) > SIGNATURE_MAX:
+            # an outline shows the start of a long signature; the review surface must see all of it,
+            # or a parameter added past the cut would not ask for a review
+            if d.surface is None:
+                d.surface = sig
+            sig = clip_signature(sig)
         code = m.text[seg:decl_at].rstrip()
         if code.strip():  # an access label or macro sits between the comment and the declaration
             seg += len(code)

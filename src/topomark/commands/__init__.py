@@ -4,7 +4,6 @@
 
 from __future__ import annotations
 
-import importlib
 from dataclasses import dataclass, field
 from types import ModuleType
 from typing import Any
@@ -27,11 +26,15 @@ class Result:
 
 
 def COMMAND_MODULES() -> list[ModuleType]:  # noqa: N802 - reads like a constant at call sites
-    modules = []
-    for name in _NAMES:
-        try:
-            modules.append(importlib.import_module(f"topomark.commands.{name}"))
-        except ModuleNotFoundError as e:
-            if e.name != f"topomark.commands.{name}":
-                raise
-    return modules
+    # Written out (not computed from _NAMES) so `impact` and `tests-for` see who loads each command;
+    # tests/test_meta.py checks this list against _NAMES. Inside the function: the modules import Result.
+    from . import (
+        agent_hook, brief, capabilities, changes, check, diff, doctor, draft, find, gen, hook, impact, init, locate,
+        map, outline, owner, refs, search, stale, stamp, symbol, sync, syntax, tests_for,
+    )
+
+    return [
+        init, doctor, capabilities,
+        gen, check, sync, stamp, diff, stale, owner, draft, hook, agent_hook,
+        outline, symbol, find, search, locate, refs, impact, brief, tests_for, changes, syntax, map,
+    ]

@@ -6,11 +6,14 @@ from __future__ import annotations
 
 import argparse
 import ast
-import importlib
 import io
 import json
+import os
 import re
 import shlex
+import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -34,37 +37,20 @@ def _registered() -> dict[str, argparse.ArgumentParser]:
     return _subparsers(build_parser())
 
 
-def _missing_modules() -> list[str]:
-    from topomark.commands import _NAMES
-
-    out = []
-    for name in _NAMES:
-        try:
-            importlib.import_module(f"topomark.commands.{name}")
-        except ModuleNotFoundError as e:
-            if e.name == f"topomark.commands.{name}":
-                out.append(name)
-            else:
-                raise
-    return out
-
-
 class CommandRegistryTest(unittest.TestCase):
     def test_every_name_imports_and_registers_a_parser(self) -> None:
-        from topomark.commands import _NAMES
+        from topomark.commands import _NAMES, COMMAND_MODULES
 
-        missing = _missing_modules()
+        modules = COMMAND_MODULES()
+        self.assertEqual([m.__name__.rsplit(".", 1)[-1] for m in modules], _NAMES)
+        on_disk = sorted(p.stem for p in (SRC / "commands").glob("*.py") if not p.stem.startswith("_"))
+        self.assertEqual(sorted(_NAMES), on_disk, "a command module is missing from commands._NAMES (or the reverse)")
         subs = _registered()
-        for name in _NAMES:
-            if name in missing:
-                continue
+        for name, mod in zip(_NAMES, modules):
             with self.subTest(command=name):
-                mod = importlib.import_module(f"topomark.commands.{name}")
                 self.assertTrue(callable(getattr(mod, "register", None)), f"{name}: no register()")
                 self.assertTrue(callable(getattr(mod, "run", None)), f"{name}: no run()")
                 self.assertTrue(name in subs or name.replace("_", "-") in subs, f"{name}: no subparser")
-        if missing:
-            self.skipTest(f"command modules not written yet: {', '.join(missing)}")
 
     def test_capabilities_covers_every_subcommand(self) -> None:
         rc, out, _ = run_cli(["capabilities", "--json"])
@@ -73,6 +59,48 @@ class CommandRegistryTest(unittest.TestCase):
         self.assertEqual(set(caps["commands"]), set(_registered()))
         for name, desc in caps["commands"].items():
             self.assertTrue(desc["help"], f"{name} has no help text")
+
+    def test_json_without_a_command_is_a_usage_envelope(self) -> None:
+        rc, out, err = run_cli(["--json"])
+        self.assertEqual((rc, err), (2, ""))
+        payload = json.loads(out)
+        self.assertEqual((payload["schema_version"], payload["error"]["code"]), ("topomark/1", "USAGE"))
+        rc, out, err = run_cli([])
+        self.assertEqual((rc, out), (2, ""))
+        self.assertIn("usage: topomark", err)
+
+    @unittest.skipIf(os.name == "nt", "a closed pipe is reported differently on Windows")
+    def test_a_reader_that_leaves_early_is_not_an_error(self) -> None:
+        env = dict(os.environ, PYTHONPATH=str(ROOT / "src"), PYTHONUTF8="1")
+        p = subprocess.Popen([sys.executable, "-m", "topomark", "-C", str(ROOT), "outline", "src", "tests", "tools",
+                              "--tokens", "400000", "--json"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
+        assert p.stdout is not None and p.stderr is not None
+        p.stdout.read(10)
+        p.stdout.close()  # like `| head -c 10`: the rest of the output has nowhere to go
+        err = p.stderr.read().decode("utf-8", errors="replace")
+        p.stderr.close()
+        self.assertEqual((p.wait(), err), (0, ""))
+
+    def test_doctor_reports_each_check_and_fails_only_on_a_real_problem(self) -> None:
+        with TempRepo({"src/app.py": "X = 1\n", ".env": "TOKEN=1\n"}) as repo:
+            d = repo.json("doctor")
+            checks = {c["name"]: c for c in d["checks"]}
+            self.assertTrue(d["ok"])
+            self.assertEqual(set(checks), {"python", "git", "repo", "config", "secrets", "docs_dir", "files", "cache"})
+            self.assertEqual(checks["secrets"]["status"], "warn")  # git tracks .env: said, not a failure
+            self.assertIn("1 tracked by git: .env", checks["secrets"]["detail"])
+            self.assertIn("no topomark.toml", checks["config"]["detail"])
+            self.assertIn("WARN secrets", repo.cli("doctor")[1])
+            repo.write({"topomark.toml": '[topomark]\nl0_max = "many"\n'})
+            bad = repo.json("doctor", expect=1)  # a config it cannot read: exit 1, and it still answers
+            self.assertFalse(bad["ok"])
+            failed = [c for c in bad["checks"] if c["status"] == "fail"]
+            self.assertEqual([c["name"] for c in failed], ["config"])
+            self.assertIn("l0_max must be a positive integer", failed[0]["detail"])
+        with tempfile.TemporaryDirectory() as plain:
+            rc, out, _ = run_cli(["-C", plain, "doctor", "--json"])
+            self.assertEqual(rc, 1)
+            self.assertEqual([c["name"] for c in json.loads(out)["checks"] if c["status"] == "fail"], ["repo"])
 
     def test_every_json_output_has_schema_version(self) -> None:
         files = {"src/app.py": '"""App."""\n\nclass Router:\n    pass\n',

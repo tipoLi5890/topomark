@@ -80,7 +80,7 @@ class SyntaxTest(unittest.TestCase):
             self.assertTrue(got["svc/x.py"].endswith(f"({ver}; the project requires >=3.99)"), got)
 
     def test_swift_raw_strings_are_masked(self) -> None:
-        from topomark.navigate import mask_file
+        from topomark.masking import mask_file
         from topomark.syntax import imbalance
 
         for src in ['let s = #"he said "hi(" ok"#\n', 'let s = ##"x "#( "##\n', 'let s = #"a \\"(" b"#\n',

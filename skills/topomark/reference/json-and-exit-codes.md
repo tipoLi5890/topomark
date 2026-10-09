@@ -32,7 +32,7 @@ always exits 0. With `--json` (for debugging only) that object is wrapped in the
 | 0 | OK | ran and found nothing to report |
 | 1 | FINDINGS | `check`/`stale` found problems, `doctor` found a failing check, `syntax` found a file that does not parse |
 | 2 | USAGE | bad flags or arguments; also `REFUSED` (an action that would lose information, such as `init` over existing files or `stamp --baseline` over existing stamps) |
-| 3 | CONFIG | `topomark.toml` is malformed or has an unknown key |
+| 3 | CONFIG | `topomark.toml` is malformed or a value has the wrong type (an unknown key is only a warning on stderr) |
 | 4 | NOT_FOUND | path, symbol or area does not exist; `symbol <Name>` that is ambiguous |
 | 5 | UNSUPPORTED | no language adapter for the operation |
 | 6 | NOT_GIT | not inside a git work tree (pass `-C <repo>`) |

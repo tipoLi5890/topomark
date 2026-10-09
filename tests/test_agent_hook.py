@@ -91,8 +91,18 @@ class SessionStartTest(HookTest):
             self.assertEqual(text.count("\n"), 0)
             self.assertIn("topomark map --tokens 2000", text)
 
+    def test_config_warnings_stay_out_of_the_hooks(self) -> None:
+        files = {"topomark.toml": '[topomark]\ncolour = "red"\n', "src/app.py": "x = 1\n"}
+        with TempRepo(files) as repo:
+            self.assertIn("warning: topomark.toml: unknown key", repo.cli("outline", "src/app.py")[2])
+            for action in EVENTS:
+                payload = {"session_id": "warn", "cwd": str(repo.root),
+                           "tool_input": {"file_path": str(repo.root / "src" / "app.py")}}
+                with self.subTest(action=action):
+                    self.assertEqual(hook(action, payload)[2], "")
+
     def test_invalid_config_says_so(self) -> None:
-        with TempRepo({"topomark.toml": "[nope]\n", "src/app.py": "x = 1\n"}) as repo:
+        with TempRepo({"topomark.toml": "[topomark]\nl0_max = \"many\"\n", "src/app.py": "x = 1\n"}) as repo:
             text = self.context(*hook("session-start", {"cwd": str(repo.root)})[:2], "SessionStart")
             self.assertIn("topomark doctor", text)
 

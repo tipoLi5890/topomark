@@ -18,10 +18,16 @@ def _register(exts: tuple[str, ...], factory: Callable[[], object]) -> None:
 def _load() -> None:
     if _FACTORIES:
         return
+    from .cfamily import CFamily
     from .csharp import CSharp, Java
+    from .dart import Dart
+    from .go import Go
     from .js_ts import JsTs
+    from .kotlin import Kotlin
     from .python import Python
+    from .rust import Rust
     from .simple import Data, Markdown, Shell, Sql
+    from .swift import Swift
 
     _register((".cs",), CSharp)
     _register((".java",), Java)
@@ -31,11 +37,12 @@ def _load() -> None:
     _register((".sql",), Sql)
     _register((".json", ".jsonc", ".json5", ".asmdef", ".asmref", ".toml", ".yaml", ".yml"), Data)
     _register((".md", ".markdown"), Markdown)
-    try:  # optional adapters added in later phases
-        from . import extra  # noqa: F401
-        extra.register(_register)
-    except ImportError:
-        pass
+    _register((".dart",), Dart)
+    _register((".kt", ".kts"), Kotlin)
+    _register((".swift",), Swift)
+    _register((".go",), Go)
+    _register((".rs",), Rust)
+    _register((".c", ".cc", ".cpp", ".cxx", ".c++", ".h", ".hh", ".hpp", ".hxx", ".h++", ".inl", ".m", ".mm"), CFamily)
 
 
 def adapter_for(path: str) -> object:

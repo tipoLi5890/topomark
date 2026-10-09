@@ -69,7 +69,7 @@ def run(args, ctx) -> Result:
             out_lines.append(f"  full: {entry['git_diff']}")
         if "note" in entry:
             out_lines.append(f"  note: {entry['note']}")
-    changed = rec.get("surface") != ws.unit_hash(unit)
+    changed = ws.interface_changed(unit)
     head = f"{unit}: interface {'CHANGED' if changed else 'unchanged'} since review"
     if not report:
         head += "; content identical"

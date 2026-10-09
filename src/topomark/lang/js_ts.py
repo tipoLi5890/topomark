@@ -56,6 +56,13 @@ class JsTs(BraceLanguage):
             and (s.exported or s.kind in ("class", "function"))))
         return info
 
+    def degraded_of(self, masked: Masked) -> str:
+        opened, closed = masked.text.count("{"), masked.text.count("}")
+        if opened == closed:
+            return ""
+        return (f"{opened} opening and {closed} closing braces outside strings and comments: a declaration "
+                "may be cut short or missing (an unclosed block, or text the scanner read as a string)")
+
     def imports_of(self, masked: Masked) -> list[str]:
         out: list[str] = []
         for hit in _SPECIFIER_AT.finditer(masked.text):
@@ -257,8 +264,7 @@ def _sig(raw: str, cut: str = "") -> str:
     s = raw.strip()
     if cut and cut in s:
         s = s.split(cut)[0] + cut
-    s = norm(s)
-    return s if len(s) <= 200 else s[:199] + "…"
+    return norm(s)  # the walker clips what an outline shows; the surface keeps the whole signature
 
 
 def _short(raw: str, limit: int = 160) -> str:

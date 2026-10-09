@@ -7,8 +7,10 @@ from __future__ import annotations
 
 import argparse
 import os
+import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -45,23 +47,72 @@ def _ctx(root: Path):
 
 
 class IndexTest(unittest.TestCase):
+    def test_incomplete_outline_warning_survives_the_cache(self) -> None:
+        files = {"src/broken.py": "def ok(a,\n    return 1\n\n\ndef lost():\n    return 2\n", "src/fine.py": "def fine():\n    return 1\n"}
+        with TempRepo(files) as repo:
+            for _ in range(2):  # analyzed, then read back from the cache
+                d = repo.json("outline", "src/broken.py")
+                self.assertIn("a bracket opened on line 1 never closes", d["degraded"])
+                rc, out, _ = repo.cli("outline", "src/broken.py")
+                self.assertIn("  warning: this outline may be incomplete: a bracket opened on line 1", out)
+                self.assertNotIn("degraded", repo.json("outline", "src/fine.py"))
+            rc, out, _ = repo.cli("outline", "src")
+            self.assertEqual(out.count("warning: this outline may be incomplete"), 1)
+
     def test_one_shard_per_file_and_old_caches_removed(self) -> None:
         from topomark.index import CachedInfo, Index, cache_dir
 
         files = {f"pkg/m{k:02d}.py": f"class Thing{k:02d}:\n    pass\n" for k in range(40)}
         with TempRepo(files) as repo:
             base = cache_dir(repo.root)
-            (base / "index-0000000000000000").mkdir(parents=True)
+            unused, recent = base / "index-0000000000000000", base / "index-1111111111111111"
+            gone_repo, live_repo, not_ours = (base.parent / n for n in ("a" * 16, "b" * 16, "c" * 16))
+            for d in (unused, recent, gone_repo / "index-2222222222222222", live_repo / "index-3333333333333333",
+                      not_ours / "index-4444444444444444", not_ours / "notes"):
+                d.mkdir(parents=True)
+            long_ago = time.time() - 200 * 86400
+            for d in (unused, gone_repo / "index-2222222222222222", not_ours / "index-4444444444444444", not_ours / "notes"):
+                os.utime(d, (long_ago, long_ago))
             with open(base / "index.json", "w", encoding="utf-8", newline="\n") as fh:
                 fh.write("{}")
             repo.json("map", "--tokens", "50")
             self.assertFalse((base / "index.json").exists())
-            self.assertFalse((base / "index-0000000000000000").exists())
+            self.assertFalse(unused.exists())     # another version's index, not used for months
+            self.assertTrue(recent.exists())      # another version's index in use: two versions can alternate
+            self.assertFalse(gone_repo.exists())  # a repository nobody has opened for months
+            self.assertTrue(live_repo.exists())
+            self.assertTrue(not_ours.exists())    # holds something this module did not put there
+            for d in (recent, live_repo, not_ours):
+                shutil.rmtree(d)
             idx = Index(_ctx(repo.root))
             info = idx.info("pkg/m07.py")
             self.assertIsInstance(info, CachedInfo)
             self.assertEqual([s.qualname for s in info.symbols], ["Thing07"])
             self.assertEqual(len(idx._shards), 1)  # outline/symbol never load the whole index
+
+
+    def test_two_runs_at_once_keep_each_others_entries(self) -> None:
+        from topomark.index import Index, shard_of
+
+        names = [f"pkg/m{k:03d}.py" for k in range(600)]
+        first = names[0]
+        second = next(n for n in names[1:] if shard_of(n) == shard_of(first))
+        files = {first: "class One:\n    pass\n", second: "class Two:\n    pass\n", "pkg/other.py": "X = 1\n"}
+        with TempRepo(files) as repo:
+            warm = Index(_ctx(repo.root))
+            warm.info("pkg/other.py")
+            warm.save()  # the index folder exists: later saves merge instead of starting it
+            a, b = Index(_ctx(repo.root)), Index(_ctx(repo.root))
+            a.info(first)
+            b.info(second)
+            a.save()
+            b.save()  # the same shard file: b must not write back the shard as it was when b read it
+            after = Index(_ctx(repo.root))
+            self.assertEqual(set(after._shard(shard_of(first))), {first, second})
+            (repo.root / first).unlink()
+            repo.commit("gone")
+            Index(_ctx(repo.root)).all()  # a full scan drops the entry of a file that is gone
+            self.assertEqual(set(Index(_ctx(repo.root))._shard(shard_of(first))), {second})
 
 
 class DerivedCacheTest(unittest.TestCase):
@@ -126,7 +177,7 @@ class HarnessCacheTest(unittest.TestCase):
             used = out.stdout.strip()
             self.assertNotEqual(used, mine)
             self.assertIn("topomark-test-cache-", used)
-            os.rmdir(used)
+            self.assertFalse(os.path.exists(used))  # the harness removes its cache when the process ends
 
 
 class GlobMatcherTest(unittest.TestCase):

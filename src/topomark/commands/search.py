@@ -11,7 +11,7 @@ def register(sub, common) -> None:
             "Ranks symbols by how well their name (split at case changes and underscores), container,\n"
             "signature, doc summary and path match the keywords, plus their file's header and code-map\n"
             "row. A test whose name matches lends its score to the code its body uses (`via`).\n"
-            "Production code ranks above tests, code above Markdown and data files. Give a few\n"
+            "Production code is weighted above tests, code above Markdown and data files. Give a few\n"
             "keywords, not a pasted issue: every extra word dilutes the ranking. Output is capped\n"
             "(--limit, --tokens) with a count of what was left out; there are no further pages.",
             "examples:\n  topomark search review stamp surface hash\n  topomark search \"cache directory\" --limit 5\n"

@@ -48,16 +48,16 @@ declares. Approximate: a name that collides with something common inflates the c
 
 | prod / test | file | area | why it reaches everything |
 |---:|---|---|---|
-| 26/0 | `src/topomark/commands/__init__.py` | commands | `Result`, returned by every handler |
-| 24/0 | `src/topomark/errors.py` | core | `TopomarkError` and the exit table, raised everywhere |
-| 17/3 | `src/topomark/repo.py` | core | git file list, glob matching and `read_text` for every command |
-| 14/4 | `src/topomark/lang/registry.py` | lang | the only way from a path to an adapter |
-| 12/1 | `src/topomark/navigate.py` | engine | `Nav` behind every navigation command |
-| 12/0 | `src/topomark/docs.py` | engine | areas, ownership and units behind every code-map command |
+| 26/1 | `src/topomark/commands/__init__.py` | commands | `Result`, returned by every handler |
+| 26/1 | `src/topomark/errors.py` | core | `TopomarkError` and the exit table, raised everywhere |
+| 19/3 | `src/topomark/repo.py` | core | git file list, glob matching and `read_text` for every command |
+| 9/4 | `src/topomark/lang/registry.py` | lang | the only way from a path to an adapter |
+| 11/1 | `src/topomark/navigate.py` | engine | `Nav` behind every navigation command |
+| 13/0 | `src/topomark/docs.py` | engine | areas, ownership and units behind every code-map command |
 | 10/0 | `src/topomark/workspace.py` | engine | the code-map state `check`, `stamp`, `stale`, `gen`, `sync` share |
 
-`src/topomark/search.py` shows 16/1 only because its `search` function shares a name with `re.search`;
-its one real caller is `src/topomark/commands/search.py`.
+Between Python files a name only counts when the referrer imports the declaring module, so
+`src/topomark/search.py` is 2/0 here (it was 19/2 while every `re.search` counted).
 
 ## Cross-area coupling
 
@@ -67,8 +67,9 @@ its one real caller is `src/topomark/commands/search.py`.
   `agent-hook` action ([commands.md](commands.md)); the three must agree.
 - [engine.md](engine.md)'s cache is invalidated by any edit under `src/topomark/lang/`
   ([lang.md](lang.md)): the index fingerprint hashes the adapters.
-- [tests.md](tests.md) reach most modules through `cli.main` and `commands/__init__.py`'s computed
-  imports, which `tests-for` cannot follow: for engine changes it may print few tests, run the suite.
+- [tests.md](tests.md) reach most modules through `cli.main`, several imports from the engine
+  (harness, CLI, command registry, handler): past `tests-for`'s default depth, so for engine changes
+  it may print few tests, run the suite.
 
 ## Maintenance
 

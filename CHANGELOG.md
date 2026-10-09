@@ -19,6 +19,120 @@ All notable changes to `topomark` are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-09
+
+### Added
+
+- `outline` warns when a file's outline may be incomplete (JSON: `degraded`): a Python bracket that
+  never closes hides every declaration after it, and a JS/TS file whose braces do not balance
+  outside strings and comments may have one cut short. The adapters read text and do not parse, so
+  until now such a file was listed short without a word. Cache format 3: the first run after
+  upgrading re-parses.
+
+### Fixed
+
+- C# and Java fields whose type has several type arguments were named after one of them
+  (`Map<String, Integer> counts` was listed as `String`, `Dictionary<string, int> lookup` as
+  `string`): `outline`, `symbol`, `find` and `search` now show the field's own name. Signatures,
+  and with them the review surface and the stamps, are unchanged, and so is fan-in (it counts
+  top-level types). Java has a golden outline in
+  the tests now, which is how this was found.
+- C#: a member whose type is a tuple was named after its modifier (`public (int, string) pair` and
+  `public (int, string) Find(int id)` were both a method called `public`), and a field holding a
+  lambda was a property named after the lambda's parameter (`Func<int, int> twice = x => x * 2` was
+  `x`). They are now `pair`, `Find` and `twice`.
+- C, C++ and Objective-C: a declaration with long identifiers could take seconds to read, or never
+  finish. The pattern that looks for function pointers tried every way of cutting an identifier
+  into pieces before giving up (exponential in its length): a 2 KB header with a constructor like
+  `explicit Terminal(NamedPipe &output, bool plainMode, ...)` took two seconds, larger files hung
+  `map`, `check` and the first run of anything that indexes the repository. Each word is now
+  matched whole; 14,000 installed JS, TS and C-family files that took minutes parse in 15 seconds.
+- A signature longer than 200 characters was cut before it reached the review surface (JS/TS, Dart,
+  Kotlin, Swift, Go, Rust, C, C++, Objective-C), so a parameter added past the cut did not ask for
+  a review. Outlines still show the first 200 characters; the surface now holds the whole
+  signature.
+- `changes` read wrong paths when the user's git sets `diff.noprefix` or `diff.mnemonicPrefix`
+  (`src/x.py` came out as `c/x.py`, listed as added): the diff is now asked for with fixed `a/` and
+  `b/` prefixes.
+- A `docs_dir` that leaves the repository (`../elsewhere`) is refused: `init --docs-dir` with a
+  usage error (exit 2, `--dry-run` included), `docs_dir` in `topomark.toml` with a config error
+  (exit 3). `init` used to plan, and write, files outside the repository.
+- `topomark --json` with no command prints the error envelope on stdout (it printed the help text
+  on stderr and nothing on stdout).
+- A reader that closes the pipe early (`topomark outline src --json | head -c 100`) no longer ends
+  in a traceback: the command stops quietly with its own exit code.
+- A `stamps.json` that is not JSON (merge-conflict markers) is a config error (exit 3) that names
+  the file, not an internal error (exit 7).
+
+### Changed
+
+- The analysis cache no longer throws away other indexes the moment a new one appears: an index
+  written by another topomark version or Python stays for 14 days after its last use, so a plugin
+  and a pip install on different versions stop re-parsing the repository in turn. Cache folders of
+  repositories not opened for 90 days, and temporary files a killed run left, are removed. Two runs
+  at once (the hooks start a process per tool call) merge their entries into a shard instead of the
+  later one writing the shard back as it first read it.
+- Fewer git processes: one `ls-files` per command instead of two, and `changes` reads every old
+  version through one `git cat-file --batch` instead of a `git show` per file.
+- Files topomark writes (`stamps.json`, area files, generated reports) are written whole or not at
+  all: a temporary file is renamed into place.
+- **Stamps survive adapter changes.** When a stamped surface hash no longer matches, `check`, `stale`
+  and `diff` read the reviewed content again (the git blobs a stamp records) with the adapters of
+  the running version and compare that with the files as they are. An upgrade that reads a
+  declaration differently (the C# and long-signature fixes below) no longer reports
+  `STAMP_CHANGED` for code nobody touched; only a stamp whose reviewed blob git has pruned falls
+  back to comparing hashes. `check` still writes nothing: the stored hash is refreshed the next time the unit
+  is stamped. Until then each `check` re-reads what differs in two git processes (0.2 s to 0.3 s
+  for 227 units on the 3,000-file synthetic repo when every stamp is from another reading).
+- **Fan-in between Python files needs an import.** A Python file that mentions a name another
+  Python file declares counts as a reference only when it imports that module, directly or through a
+  module that imports it and mentions the name (a re-export, a package `__init__`). Until now the
+  identifier alone counted, so a module with a function called `search` collected every file that
+  calls `re.search` (19/2 in topomark's own map, 2/0 now). Other languages, mixed pairs and files
+  that load modules by computed names are judged by name as before. This changes `impact`, `brief`,
+  `map`'s ranking and `tests-for`'s callers for Python code, and the numbers in adopted code maps:
+  after upgrading, `check` reports `FANIN_STALE`, `GENERATED_STALE` and possibly `EDGES_CHANGED`
+  once. Run `topomark sync`, `topomark gen`, and after reading the cross-area sections
+  `topomark stamp --edges <area>`.
+- The adapters for Dart, Kotlin, Swift, Go, Rust and the C family each have a module of their own
+  (`lang/extra.py` held all six), and every adapter is registered in one table. An adapter that
+  fails to import is now an error instead of six languages quietly falling back to plain text.
+  Their output is unchanged (compared on 12,000 files).
+- `navigate.py` (1,192 lines) is five modules smaller: `masking.py`, `imports.py`, `testsel.py`,
+  `runners.py` and `ranking.py` hold what their names say, and `rel` lives in `repo.user_path`.
+  Nothing moved for users: the eval and the JSON of sixteen commands are byte-identical before and
+  after. An edit to runner quoting or `map`'s ranking no longer invalidates the cached search index,
+  and `syntax.check_file` (the post-edit hook) no longer imports the workspace to mask a file.
+- A section or key in `topomark.toml` that this version does not know is ignored with a `warning:`
+  line on stderr (hidden by `--quiet`) instead of a config error (exit 3): a file written for a
+  newer topomark no longer stops an older one, which matters when the plugin and a pip install are
+  on different versions. The plugin hooks never print the warning. Wrong types are still config errors, and more of them are caught:
+  `include_default_excludes` must be a boolean; a runner's `match`, `command`, `names`, `join` and
+  `fallback` must be strings and `max_names` a positive integer (`max_names = "many"` was an
+  internal error, exit 7).
+- Secret-looking paths. More are refused: `secrets.yaml`/`.yml`, `*.secrets.yaml`/`.yml`,
+  `.git-credentials`, `service-account*.json`, `*.tfvars`, `*.tfvars.json`, `kubeconfig*`, and every
+  pattern now ignores case (`Keys/`, `ID_RSA`). Two are narrower: `keys/` and `credentials*` no
+  longer hide source code (`src/auth/credentials.py`, `src/keys/bindings.ts` were refused with exit
+  2); data files under those names stay refused. Files that become readable are new units for
+  `check` (`NOT_LISTED`) in a code map whose scope covers them.
+- `search` ranks the code a test method leads to above the test itself: a test's own score counts
+  0.4 (was 0.5, the same share it lends to that code, so a test whose name held every query word
+  came first). Eval numbers in `docs/pilots.md`.
+- The command modules are imported from a written-out list, so `impact` shows
+  `commands/__init__.py` as the importer of each command and `tests-for` follows it. No change to
+  the CLI.
+- `tools/eval_nav.py` runs the tasks about this repository on a pinned snapshot (`snapshot` in
+  `tools/eval/tasks.toml`, exported with `git archive`, without `tools/eval/`) instead of the
+  checkout, which changed under the tasks with every commit; `--repo DIR` runs on a directory as
+  it is. A `locate` gold must still contain the message it is asked about (two had gone stale when
+  the code moved, and counted as misses). `--fail-under MRR` is the floor CI enforces.
+- CI runs the eval on the snapshot, and builds the wheel, installs it and runs it. mypy checks 25
+  modules instead of 4 (every one that passes `disallow_untyped_defs`).
+- Removed `Graph.pagerank`, which nothing called (`map` ranks with `ranking.pagerank_files`).
+- The test harness writes the throwaway repos' git settings directly and removes its cache
+  directory at exit: the suite takes about a third less time.
+
 ## [0.2.0] - 2026-10-07
 
 ### Added
@@ -216,6 +330,7 @@ All notable changes to `topomark` are documented here. The format is based on
 - Agent skill `skills/topomark`, Claude Code plugin and marketplace manifests, Codex plugin manifest.
 - CI: ruff, mypy, unittest on Linux and Windows, CLI smoke, manifest and skill gates.
 
-[Unreleased]: https://github.com/tipoLi5890/topomark/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/tipoLi5890/topomark/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/tipoLi5890/topomark/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/tipoLi5890/topomark/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/tipoLi5890/topomark/releases/tag/v0.1.0

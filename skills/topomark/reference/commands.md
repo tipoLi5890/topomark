@@ -38,6 +38,10 @@ Every declaration a reader navigates to (types, members, top-level functions, co
 container, with 1-based inclusive line ranges. A range includes leading doc comments and attributes,
 so it can feed a ranged read directly. `--depth 1` shows top-level declarations only.
 
+The adapters read text; they do not parse. When a Python bracket never closes, or a JS/TS file's
+braces do not balance, the outline says `warning: this outline may be incomplete: ...` (JSON:
+`degraded`): read the file itself around that line instead of trusting the list.
+
 Several paths, or a directory (its git code files, recursively; Markdown and data files left out),
 are outlined together: top-level declarations unless `--depth` says otherwise, one header line per
 file, files in path order until `--tokens` (default 2000) is spent, then a count of the files left
@@ -93,7 +97,8 @@ comment and its code-map row add to its symbols' scores, and a file can be a res
 test method whose name matches lends half its score to the production symbols its body uses
 (`via` in the output and JSON): issue words often match a test's name better than the code's.
 
-Ranking: production code above tests, code above Markdown and data files, symbols that match more of
+Ranking by weight, not strict tiers: production code above tests (a test counts less than the code it
+leads to), code above Markdown and data files, symbols that match more of
 the query's words above those that match fewer. No PageRank and no randomness: the same query on the
 same tree gives the same list. Output is capped at `--limit` (default 15) or `--tokens`, with a count
 of what was left out; there is no second page. **Give two to five keywords**, the words the code

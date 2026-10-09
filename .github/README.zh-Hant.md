@@ -101,10 +101,10 @@ topomark changes --staged
 |---|---|
 | `init` | 偵測技術組成並寫出 code map 骨架（`--dry-run`、`--docs-dir`、`--force`） |
 | `draft <area>` | 區檔缺的列，先填好摘要與扇入（`--write`） |
-| `check` | 覆蓋率、死路徑、歸屬、行數上限、扇入、產生檔、戳記 |
-| `stale` | 需要審的列（擋關）與只改內容的檔（提示） |
+| `check` | 覆蓋率、死路徑、歸屬、行數上限、扇入、產生檔、戳記（`--area`、`--no-stamps`） |
+| `stale` | 需要審的列（擋關）與只改內容的檔（提示）（`--area`） |
 | `diff <unit>` | 從上次審閱到現在改了什麼，先列介面 |
-| `stamp` | 記錄一次審閱 |
+| `stamp` | 記錄一次審閱（`<units>`、`--area`、`--edges`、`--prune`、`--baseline`，可加 `--force`） |
 | `gen` | 重產 `_generated/` |
 | `sync` | 更新區檔裡的扇入數字 |
 

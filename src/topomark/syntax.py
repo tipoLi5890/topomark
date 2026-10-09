@@ -188,12 +188,9 @@ def imbalance(masked: str) -> tuple[int, str] | None:
 
 
 def _head_text(ctx, path: str) -> str | None:
-    from .repo import git
+    from .repo import git_objects
 
-    root = ctx.root
-    if not git(root, "ls-tree", "--name-only", "HEAD", "--", path, check=False).strip():
-        return None  # no commit yet, or the file is new
-    return git(root, "show", f"HEAD:{path}", check=False).replace("\r\n", "\n")
+    return git_objects(ctx.root, [f"HEAD:{path}"])[f"HEAD:{path}"]  # None: no commit yet, or the file is new
 
 
 def newer_python(ctx, path: str) -> str | None:
@@ -222,7 +219,7 @@ def check_file(ctx, path: str) -> Checked:
     """Check one repo file (repo-relative POSIX path) as it is on disk now."""
     from .errors import TopomarkError
     from .lang import registry
-    from .navigate import mask_file
+    from .masking import mask_file
 
     low = path.lower()
     adapter = getattr(registry.adapter_for(path), "name", "")

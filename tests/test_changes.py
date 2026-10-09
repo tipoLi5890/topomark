@@ -164,6 +164,15 @@ class DiffParsingTest(unittest.TestCase):
             self.assertEqual([(f["path"], f["status"], f["symbols"]) for f in d["files"]],
                              [("src/tool.py", "modified", [])])
 
+    def test_user_diff_prefix_settings_do_not_change_paths(self) -> None:
+        for key in ("diff.noprefix", "diff.mnemonicPrefix"):
+            with self.subTest(setting=key), TempRepo(BASE) as r:
+                r.git("config", key, "true")
+                r.write({"src/shop/cart.py": CHANGED_CART})
+                d = r.json("changes")
+                self.assertEqual([(f["path"], f["status"]) for f in d["files"]], [("src/shop/cart.py", "modified")])
+                self.assertEqual(changes_of(d)["src/shop/cart.py"]["Cart.total_price"], "signature")
+
     def test_header_only_files(self) -> None:
         from topomark.changes import parse_diff
 

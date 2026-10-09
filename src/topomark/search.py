@@ -65,7 +65,8 @@ TEST_EVIDENCE = 0.5    # share of a test method's score given to the code its bo
 EVIDENCE_MAX_DECLS = 3  # a name declared by more symbols than this is too vague to follow
 COVERAGE = 0.5        # a symbol's own score × (share of the query words it matches) ** COVERAGE
 
-KIND_WEIGHT = {"code": 1.0, "test": 0.5, "doc": 0.35, "data": 0.3}
+# "test" stays under TEST_EVIDENCE: the code a test method leads to ranks above the test itself
+KIND_WEIGHT = {"code": 1.0, "test": 0.4, "doc": 0.35, "data": 0.3}
 DOC_LANGS = frozenset({"markdown", "text"})
 DATA_LANGS = frozenset({"data", "json", "toml", "yaml"})
 
@@ -197,7 +198,8 @@ def build(nav) -> dict:
     numbers are packed ``array`` bytes and symbol details one string, so loading a 3,000-file
     index is a handful of big objects, not millions of small ones."""
     from .lang.base import IDENT
-    from .navigate import mask_file, test_methods
+    from .masking import mask_file
+    from .testsel import test_methods
 
     infos = nav.infos
     rows = _area_rows(nav)

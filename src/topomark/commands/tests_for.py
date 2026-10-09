@@ -30,7 +30,9 @@ def register(sub, common) -> None:
 
 def run(args, ctx) -> Result:
     from ..errors import TopomarkError
-    from ..navigate import MAX_CALLERS, Nav, changed_files, runner_commands, select_tests
+    from ..navigate import Nav, changed_files
+    from ..runners import runner_commands
+    from ..testsel import MAX_CALLERS, select_tests
 
     if args.depth < 0:
         raise TopomarkError("USAGE", "--depth must be 0 or more")

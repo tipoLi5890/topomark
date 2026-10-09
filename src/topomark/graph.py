@@ -6,17 +6,26 @@ appears in its code (comments and strings masked out). Names shorter than
 than one file (unless every declaration is ``partial``) are ignored, because
 they match too much. Tests only ever reference; they never declare for this
 purpose, so a test's private ``Router`` stub can't inflate a real ``Router``.
+
+Between two Python files the identifier alone is not enough: the referrer must
+also import the declaring module, directly or through a module it imports that
+itself imports the declaring one and mentions the name (a re-export, a package
+``__init__``; ``imports.resolve_imports``). ``re.search(...)`` in a file that never
+imports ``search.py`` is not a reference to its ``search`` function. A file that
+loads modules by computed names keeps the name-only rule, since its imports
+cannot be read. Every other pair of languages is name-only: JS/TS package
+aliases and C# namespaces cannot be resolved from the repository alone.
 """
 
 from __future__ import annotations
 
-import math
 from collections import defaultdict
 from dataclasses import dataclass
 
 from .config import Config
 from .docs import Area, is_test, owner_of
-from .lang.base import FileInfo
+from .imports import PY_EXT, resolve_imports
+from .lang.base import DYNAMIC, FileInfo
 
 
 @dataclass
@@ -47,13 +56,29 @@ def build_tables(cfg: Config, infos: dict[str, FileInfo]) -> dict:
     short = {n for n in declared if len(n) < cfg.min_name and n not in cfg.keep_short_names}
     ambiguous = {n for n, fs in declared.items() if len(fs) > 1 and n not in partial}
     usable = {n for n in declared if n not in short and n not in ambiguous}
+    edges = {p: set(fs) for p, fs in resolve_imports(infos).items()}
     ident_files: dict[str, list[str]] = defaultdict(list)
     for p, info in infos.items():
+        judged = p.endswith(PY_EXT) and DYNAMIC not in info.imports  # else: its imports cannot be read
+        direct = edges.get(p, set())
         for ident in info.idents & usable:
+            if judged and p not in declared[ident] and all(d.endswith(PY_EXT) for d in declared[ident]) \
+                    and not _imports_name(ident, declared[ident], direct, edges, infos):
+                continue  # a Python name this Python file never imports: another `search`, not ours
             ident_files[ident].append(p)
     return {"tests": sorted(tests), "declared": {n: sorted(fs) for n, fs in declared.items()},
             "short": sorted(short), "ambiguous": sorted(ambiguous), "usable": sorted(usable),
             "ident_files": dict(ident_files)}
+
+
+def _imports_name(name: str, declaring: set[str], direct: set[str], edges: dict[str, set[str]],
+                  infos: dict[str, FileInfo]) -> bool:
+    """Can a file whose imports resolve to ``direct`` have got ``name`` from one of ``declaring``?
+    Yes when it imports one of them, or imports a module that imports one and mentions the name."""
+    if not direct.isdisjoint(declaring):
+        return True
+    return any(not edges.get(q, set()).isdisjoint(declaring) and name in infos[q].idents
+               for q in direct if q in infos)
 
 
 def tables_key(cfg: Config) -> str:
@@ -112,37 +137,3 @@ class Graph:
                     if r != path and r not in self.declared[n]:
                         out[r][path] = out[r].get(path, 0.0) + 1.0
         return out
-
-    def pagerank(self, personalization: dict[str, float] | None = None, iterations: int = 40,
-                 damping: float = 0.85) -> dict[str, float]:
-        nodes = list(self.infos)
-        if not nodes:
-            return {}
-        edges = self.edges()
-        n = len(nodes)
-        if personalization:
-            total = sum(personalization.values()) or 1.0
-            teleport = {k: personalization.get(k, 0.0) / total for k in nodes}
-        else:
-            teleport = {k: 1.0 / n for k in nodes}
-        rank = dict(teleport) if personalization else {k: 1.0 / n for k in nodes}
-        out_weight = {src: sum(dst.values()) for src, dst in edges.items()}
-        for _ in range(iterations):
-            nxt = {k: (1 - damping) * teleport[k] for k in nodes}
-            dangling = sum(rank[k] for k in nodes if k not in out_weight)
-            for k in nodes:
-                nxt[k] += damping * dangling * teleport[k]
-            for src, dsts in edges.items():
-                if src not in rank:
-                    continue
-                share = damping * rank[src] / out_weight[src]
-                for dst, w in dsts.items():
-                    if dst in nxt:
-                        nxt[dst] += share * w
-            diff = sum(abs(nxt[k] - rank[k]) for k in nodes)
-            rank = nxt
-            if diff < 1e-9 * n:
-                break
-        if not math.isfinite(sum(rank.values())):
-            return {k: 0.0 for k in nodes}
-        return rank

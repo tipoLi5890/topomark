@@ -27,8 +27,10 @@ from __future__ import annotations
 import hashlib
 import marshal
 import os
+import re
 import shutil
 import sys
+import time
 import zlib
 from pathlib import Path
 from typing import Any, Callable
@@ -39,9 +41,16 @@ from .lang import registry
 from .lang.base import FileInfo, Symbol
 
 MAX_BYTES = 3 * 1024 * 1024
-CACHE_FORMAT = 2
+CACHE_FORMAT = 3
 SHARDS = 256
-DERIVED_MODULES = ("graph.py", "navigate.py", "search.py")  # what builds the tables Index.derived keeps
+KEEP_DAYS = 14        # an index another version or interpreter wrote stays this long after its last use
+KEEP_REPO_DAYS = 90   # a repository's whole cache folder, after the last use of any index in it
+_DAY = 86400.0
+_REPO_DIR = re.compile(r"[0-9a-f]{16}")
+_INDEX_DIR = re.compile(r"index-[0-9a-f]{16}")
+# What builds the tables Index.derived keeps: the graph, Nav's identifier counts, import edges, and the
+# search index with the masking and test-method detection it reads. Not runners.py or ranking.py.
+DERIVED_MODULES = ("graph.py", "navigate.py", "imports.py", "masking.py", "testsel.py", "search.py")
 
 
 def _fingerprint() -> str:
@@ -94,7 +103,7 @@ def _pack(info: FileInfo) -> tuple:
 
     syms = [tuple(getattr(s, f) for f in _SYMBOL_FIELDS) for s in info.symbols]
     return (info.lang, info.line_count, info.header, marshal.dumps(syms), info.types, info.imports,
-            " ".join(sorted(info.idents)), info.surface, partial_names(info))
+            " ".join(sorted(info.idents)), info.surface, partial_names(info), info.degraded)
 
 
 def _symbol(t: tuple) -> Symbol:
@@ -109,8 +118,8 @@ class CachedInfo(FileInfo):
     files' symbols, and loading 50,000 symbols costs more than everything else."""
 
     def __init__(self, path: str, packed: tuple) -> None:  # not the dataclass __init__: fields are set here
-        lang, line_count, header, blob, types, imports, idents, surface, partial = packed
-        self.path, self.lang, self.header, self.surface = path, lang, header, surface
+        lang, line_count, header, blob, types, imports, idents, surface, partial, degraded = packed
+        self.path, self.lang, self.header, self.surface, self.degraded = path, lang, header, surface, degraded
         self.partial_names: list[str] = partial
         self.types, self.line_count, self.imports = types, line_count, imports
         self._blob: bytes = blob
@@ -162,6 +171,37 @@ def _write(path: Path, data: Any) -> None:
     os.replace(tmp, path)
 
 
+def _mark_used(index_dir: Path) -> None:
+    """Note that this index was read today (its folder's mtime), so the sweep keeps it."""
+    try:
+        if time.time() - index_dir.stat().st_mtime > _DAY:
+            os.utime(index_dir)
+    except OSError:
+        pass
+
+
+def _sweep(base: Path, keep: Path) -> None:
+    """Remove what nothing has used for a while: other indexes of this repository (two versions or
+    interpreters used in turn each keep theirs for ``KEEP_DAYS``), temporary files a killed run left,
+    and the cache folders of repositories not opened for ``KEEP_REPO_DAYS``. Only folders named the
+    way this module names them, holding nothing else, are ever removed."""
+    now = time.time()
+    for old in base.iterdir():
+        if _INDEX_DIR.fullmatch(old.name) and old != keep and now - old.stat().st_mtime > KEEP_DAYS * _DAY:
+            shutil.rmtree(old, ignore_errors=True)
+    (base / "index.json").unlink(missing_ok=True)
+    for tmp in keep.glob("*.tmp"):
+        if now - tmp.stat().st_mtime > 3600:
+            tmp.unlink(missing_ok=True)
+    for repo_dir in base.parent.iterdir():
+        if repo_dir == base or not _REPO_DIR.fullmatch(repo_dir.name) or not repo_dir.is_dir():
+            continue
+        inside = list(repo_dir.iterdir())
+        if inside and all(_INDEX_DIR.fullmatch(d.name) and d.is_dir() for d in inside) \
+                and all(now - d.stat().st_mtime > KEEP_REPO_DAYS * _DAY for d in inside):
+            shutil.rmtree(repo_dir, ignore_errors=True)
+
+
 class Index:
     def __init__(self, ctx, use_cache: bool = True) -> None:
         self.ctx = ctx
@@ -173,6 +213,11 @@ class Index:
         self._keys: dict[str, tuple[int, int]] = {}
         self._shards: dict[int, dict] = {}
         self._dirty: set[int] = set()
+        # what this process changed in each dirty shard: save() merges only that into the file, so
+        # two runs at once (the hooks start one per tool call) do not undo each other's entries
+        self._written: dict[int, set[str]] = {}
+        self._removed: dict[int, set[str]] = {}
+        self._used = False
 
     def _shard(self, k: int) -> dict:
         sh = self._shards.get(k)
@@ -180,6 +225,9 @@ class Index:
             data = _read(self._dir / f"{k:02x}.bin") if self._use_cache else None
             sh = data if isinstance(data, dict) else {}
             self._shards[k] = sh
+            if data is not None and not self._used:
+                self._used = True
+                _mark_used(self._dir)
         return sh
 
     def save(self) -> None:
@@ -189,13 +237,22 @@ class Index:
             fresh = not self._dir.is_dir()
             self._dir.mkdir(parents=True, exist_ok=True)
             for k in sorted(self._dirty):
-                _write(self._dir / f"{k:02x}.bin", self._shards[k])
+                path = self._dir / f"{k:02x}.bin"
+                mine = self._shards[k]
+                disk = _read(path) if self._use_cache and not fresh else None
+                if isinstance(disk, dict) and disk is not mine:
+                    for p in self._removed.get(k, ()):
+                        disk.pop(p, None)
+                    for p in self._written.get(k, ()):
+                        if p in mine:
+                            disk[p] = mine[p]
+                    mine = self._shards[k] = disk
+                _write(path, mine)
             self._dirty.clear()
-            if fresh:  # a new fingerprint: drop caches older adapters or formats wrote
-                for old in self._base.iterdir():
-                    if old.name.startswith("index-") and old != self._dir:
-                        shutil.rmtree(old, ignore_errors=True)
-                (self._base / "index.json").unlink(missing_ok=True)
+            self._written.clear()
+            self._removed.clear()
+            if fresh:  # a new fingerprint (another version, interpreter or adapter code)
+                _sweep(self._base, self._dir)
         except OSError:
             pass  # a read-only home must not break the tool
 
@@ -224,6 +281,7 @@ class Index:
                 info = registry.analyze(path, self.ctx.read(path))
             sh[path] = (key[0], key[1], _pack(info))
             self._dirty.add(k)
+            self._written.setdefault(k, set()).add(path)
         self._infos[path] = info
         self._keys[path] = key
         return info
@@ -244,6 +302,7 @@ class Index:
                     del sh[p]
                 if stale:
                     self._dirty.add(k)
+                    self._removed.setdefault(k, set()).update(stale)
         self.save()
         return out
 

@@ -22,7 +22,10 @@ class Context:
 
     @cached_property
     def config(self) -> Config:
-        return Config.load(self.root, getattr(self.args, "config", None))
+        cfg = Config.load(self.root, getattr(self.args, "config", None))
+        for w in cfg.warnings:
+            self.log(f"warning: {w}")
+        return cfg
 
     @cached_property
     def all_files(self) -> list[str]:

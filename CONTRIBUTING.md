@@ -47,12 +47,16 @@ Changes to ranking, output size or speed are judged by numbers:
 
 ```bash
 python3 tools/eval_nav.py                  # gold rank, hit@1/hit@5, tokens, time per task in tools/eval/tasks.toml
+python3 tools/eval_nav.py --repo .         # the same tasks on this checkout as it is now, not the pinned snapshot
 python3 tools/eval_nav.py --compare main   # the same tasks with topomark's src/ from another rev
 python3 tools/bench_nav.py --runs 3        # warm timings on a generated 3,000-file repo (tools/synth_repo.py)
 ```
 
 Write eval tasks the way an agent would ask, before tuning anything, and never tune a query to
-the tool: when a gold answer moves with the code, update the gold only.
+the tool: when a gold answer moves with the code, update the gold only. The tasks about this
+repository run on the revision `snapshot` names in `tools/eval/tasks.toml` (it needs that tag:
+`git fetch --tags`), so a number moves only when topomark's code does; CI fails under an MRR floor
+(`--fail-under`).
 
 ## Language adapters
 

@@ -167,6 +167,18 @@ GOLDEN = {
         ("Map", "function", 47, 49, True),
         ("table", "var", 51, 53, False),
     ],
+    "java/Inventory.java": [
+        ("Inventory", "class", 7, 36, True),
+        ("Inventory.MAX_ITEMS", "const", 9, 9, True),
+        ("Inventory.counts", "field", 10, 10, False),
+        ("Inventory.Inventory", "constructor", 12, 13, True),
+        ("Inventory.add", "method", 15, 20, True),
+        ("Inventory.toString", "method", 22, 25, True),
+        ("Inventory.full", "method", 27, 29, False),
+        ("Inventory.Listener", "interface", 31, 33, True),
+        ("Inventory.Listener.changed", "method", 32, 32, True),
+        ("Inventory.Level", "enum", 35, 35, True),
+    ],
     "js/component.jsx": [
         ("App", "function", 4, 11, True),
         ("helper", "function", 13, 13, True),
@@ -312,6 +324,20 @@ class GoldenOutlines(unittest.TestCase):
                    if p.is_file() and not p.name.startswith(".")}
         self.assertEqual(on_disk, set(GOLDEN))
 
+    def test_no_fixture_is_degraded(self) -> None:
+        for rel in GOLDEN:
+            with self.subTest(rel):
+                self.assertEqual(info_of(rel).degraded, "")
+
+    def test_an_outline_that_may_be_incomplete_says_so(self) -> None:
+        py = analyze("b.py", "def ok(a,\n    return 1\n\n\ndef lost():\n    return 2\n")
+        self.assertEqual([s.name for s in py.symbols], ["ok"])  # the open bracket swallows `lost`
+        self.assertIn("a bracket opened on line 1 never closes", py.degraded)
+        self.assertEqual(analyze("c.py", "def ok(a,\n       b):\n    return [a,\n            b]\n").degraded, "")
+        ts = analyze("a.ts", "export function a() {\n  if (x) {\n  return 1;\n}\n\nexport function z() {\n  return 2;\n}\n")
+        self.assertIn("3 opening and 2 closing braces", ts.degraded)
+        self.assertEqual(analyze("s.ts", "export const s = '{';\n// }}\nexport function z() {\n  return `{`;\n}\n").degraded, "")
+
     def test_outlines_match(self) -> None:
         for rel, expected in GOLDEN.items():
             with self.subTest(rel):
@@ -320,6 +346,68 @@ class GoldenOutlines(unittest.TestCase):
 
 
 class Signatures(unittest.TestCase):
+    def test_java_and_generic_fields(self) -> None:
+        i = info_of("java/Inventory.java")
+        self.assertEqual(i.lang, "java")
+        self.assertEqual(i.header, ["// Stock kept per warehouse."])
+        self.assertEqual(sym(i, "Inventory.add").doc, "Adds to a SKU and returns the new count.")
+        self.assertEqual(sym(i, "Inventory.counts").signature,
+                         "private final Map<String, Integer> counts = new HashMap<>()")
+        self.assertIn("enum Level = LOW,OK,HIGH", i.surface)
+        self.assertNotIn("counts", i.surface)  # private: not part of the reviewed interface
+        cs = analyze("B.cs", "public class B {\n    private Dictionary<string, List<int>> lookup = new();\n"
+                                      "    public int first, second;\n}\n")
+        self.assertEqual([s.qualname for s in cs.symbols], ["B", "B.lookup", "B.first"])
+
+    def test_long_signature_is_clipped_for_reading_but_whole_in_the_surface(self) -> None:
+        ts = ", ".join(f"param{i}: string" for i in range(14))
+        go = ", ".join(f"param{i} string" for i in range(20))
+        for path, short, longer in (
+                ("a.ts", f"export function build({ts}): void {{\n}}\n", f"export function build({ts}, extra: number): void {{\n}}\n"),
+                ("a.go", f"package x\n\nfunc Build({go}) error {{\n\treturn nil\n}}\n",
+                 f"package x\n\nfunc Build({go}, extra int) error {{\n\treturn nil\n}}\n")):
+            with self.subTest(path):
+                a, b = analyze(path, short), analyze(path, longer)
+                self.assertEqual(len(a.symbols[-1].signature), 200)
+                self.assertTrue(a.symbols[-1].signature.endswith("…"))
+                self.assertEqual(a.symbols[-1].signature, b.symbols[-1].signature)  # what an outline shows
+                self.assertNotEqual(a.surface, b.surface)  # a parameter past the cut still asks for a review
+                self.assertIn("extra", b.surface)
+
+    def test_cpp_declaration_with_long_identifiers_is_read_at_once(self) -> None:
+        # the function-pointer pattern used to try every way of cutting each identifier into pieces:
+        # exponential in its length (seconds for real headers, never for these names)
+        long = "NamedPipeOutputWithAVeryLongDescriptiveIdentifierName"
+        src = (f"class Terminal {{\npublic:\n    explicit Terminal({long} &output, bool plainModeEnabledForThisTerminal);\n"
+               f"    void sendLine(const {long} *lineDataPointerForTheCurrentLine, int width);\n"
+               "    void (*callback)(int code);\n};\n"
+               f"static void install({long} &target, int (*handlerFunctionPointer)(int));\n")
+        t0 = time.process_time()
+        info = analyze("terminal.h", src)
+        self.assertLess(time.process_time() - t0, 2.0)
+        self.assertEqual([(s.name, s.kind) for s in info.symbols],
+                         [("Terminal", "class"), ("Terminal", "constructor"), ("sendLine", "method"),
+                          ("callback", "field"), ("install", "function")])
+
+    def test_csharp_tuple_types_and_lambda_fields(self) -> None:
+        src = ("public class B {\n"
+               "    public (int, string) pair;\n"
+               "    public (int Id, string Name) Find(int id) { return (id, \"\"); }\n"
+               "    public (int, int) Size { get; set; }\n"
+               "    public (int, int)[] cells;\n"
+               "    public Func<int, int> twice = x => x * 2;\n"
+               "    private Func<int, int> thrice = (x) => x * 3;\n"
+               "    public int Area => w * h;\n"
+               "    public int Scale(int by = 2) => by * w;\n"
+               "    public delegate (int, int) Splitter(int n);\n"
+               "    public Task<(int, string)> Load() { return null; }\n"
+               "    static (int, int) pos = (1, 2);\n"
+               "}\n")
+        got = [(s.name, s.kind) for s in analyze("B.cs", src).symbols]
+        self.assertEqual(got, [("B", "class"), ("pair", "field"), ("Find", "method"), ("Size", "property"),
+                               ("cells", "field"), ("twice", "field"), ("thrice", "field"), ("Area", "property"),
+                               ("Scale", "method"), ("Splitter", "delegate"), ("Load", "method"), ("pos", "field")])
+
     def test_dart(self) -> None:
         i = info_of("dart/widget.dart")
         self.assertEqual(i.lang, "dart")

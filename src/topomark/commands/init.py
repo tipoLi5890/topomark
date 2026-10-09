@@ -528,10 +528,12 @@ def _render_docs(plan: dict, docs_dir: str, cfg, max_rules: int, max_manifests: 
 def run(args, ctx) -> Result:
     from ..contract import CONFIG_FILE
     from ..errors import TopomarkError
-    from ..repo import write_text
+    from ..repo import outside, write_text
 
     cfg = ctx.config
     docs_dir = (args.docs_dir or cfg.docs_dir).strip("/").replace("\\", "/")
+    if outside(docs_dir):
+        raise TopomarkError("USAGE", f"--docs-dir must be a folder inside the repository, not {docs_dir!r}")
     plan = build_plan(ctx, docs_dir)
     writes = {CONFIG_FILE: toml_config(docs_dir, plan["excludes"])}
     writes.update(render_docs(plan, docs_dir, cfg))

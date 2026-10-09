@@ -87,3 +87,43 @@ jobs:
           test "$before" = "$(git status --porcelain --untracked-files=all)"
       - name: this repo's own code map is in sync (topomark check)
         run: bin/topomark check
+
+  eval:
+    name: navigation eval (pinned snapshot)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # Full history with tags: the eval exports the snapshot its tasks name (tools/eval/tasks.toml).
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      # Golds are checked first (exit 2 when one is stale). The floor sits a little under the recorded
+      # MRR (docs/pilots.md): a ranking change that costs more than that has to be deliberate.
+      - name: eval_nav.py on the snapshot
+        run: python tools/eval_nav.py --fail-under 0.70
+        env:
+          PYTHONUTF8: "1"
+
+  package:
+    name: package (build, install the wheel, run it)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Build sdist and wheel
+        run: |
+          python -m pip install build
+          python -m build
+      # From outside the checkout, so the templates can only come from the wheel's package data.
+      - name: Installed topomark runs and finds its templates
+        run: |
+          python -m pip install dist/*.whl
+          cd "$RUNNER_TEMP"
+          topomark --version
+          topomark -C "$GITHUB_WORKSPACE" init --dry-run

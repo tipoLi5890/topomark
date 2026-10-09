@@ -483,7 +483,7 @@ IMPORT_FILES = {
 class ImportEdgeTests(unittest.TestCase):
     def test_resolver(self) -> None:
         from topomark.lang.base import DYNAMIC
-        from topomark.navigate import ImportResolver
+        from topomark.imports import ImportResolver
 
         r = ImportResolver(IMPORT_FILES)
         cases = [("src/pkg/util.py", ".core", "src/pkg/core.py"),
@@ -504,7 +504,7 @@ class ImportEdgeTests(unittest.TestCase):
         self.assertEqual(near.resolve("a/x/main.py", "util"), "a/x/util.py")
 
     def test_repo_package_named_like_the_standard_library(self) -> None:
-        from topomark.navigate import ImportResolver
+        from topomark.imports import ImportResolver
 
         r = ImportResolver(["calendar/__init__.py", "calendar/slots.py", "app/main.py", "utils/__init__.py",
                             "utils/json.py", "src/email/x.py", "src/run.py", "pkg/__init__.py", "pkg/calendar/slots.py"])
@@ -586,6 +586,37 @@ class MapTests(unittest.TestCase):
         paths = self.order("--area", "b")
         self.assertTrue(paths and all(p.startswith("b/") for p in paths))
         self.repo.json("map", "--area", "zzz", expect=4)
+
+
+
+class FanInImportTests(unittest.TestCase):
+    """Between two Python files a name counts as a reference only when the referrer imports the
+    declaring module (directly, or through a module that re-exports the name)."""
+
+    FILES = {
+        "pkg/__init__.py": "from .finder import search\n",
+        "pkg/finder.py": "def search(query):\n    return query\n\n\nclass Catalogue:\n    pass\n",
+        "pkg/direct.py": "from .finder import search\n\n\ndef run():\n    return search('a')\n",
+        "pkg/via_package.py": "from pkg import search\n\n\ndef run():\n    return search('b')\n",
+        "pkg/regex.py": "import re\n\n\ndef run(text):\n    return re.search('x', text)\n",
+        "pkg/plugins.py": "import importlib\n\n\ndef run(name):\n    return importlib.import_module(f'pkg.{name}').search('c')\n",
+        "web/client.ts": "export function load() {\n  return search('d');\n}\n",
+        "tests/test_finder.py": "from pkg.finder import search\n\n\ndef test_search():\n    assert search('q') == 'q'\n",
+        "tests/test_regex.py": "import re\n\n\ndef test_re():\n    assert re.search('q', 'q')\n",
+    }
+
+    def test_python_referrer_must_import_the_declaring_module(self) -> None:
+        with TempRepo(self.FILES) as r:
+            d = r.json("impact", "pkg/finder.py")
+            self.assertIn("search", d["fanin_names"])
+            fan = d["fanin"]
+            # regex.py only calls re.search; plugins.py loads modules by computed name (name-only rule);
+            # client.ts is another language (name-only rule)
+            self.assertEqual(fan["prod_files"], ["pkg/__init__.py", "pkg/direct.py", "pkg/plugins.py",
+                                                 "pkg/via_package.py", "web/client.ts"])
+            self.assertEqual(fan["test_files"], ["tests/test_finder.py"])
+            own = r.json("owner", "pkg/finder.py")["fanin"]
+            self.assertEqual((own["prod"], own["test"]), (5, 1))
 
 
 if __name__ == "__main__":

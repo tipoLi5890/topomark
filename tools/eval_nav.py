@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Minimal navigation eval: does a command put the right symbol on top, and at what cost?
 
-    python3 tools/eval_nav.py                     # tools/eval/tasks.toml against this checkout
+    python3 tools/eval_nav.py                     # tools/eval/tasks.toml against the pinned snapshot
+    python3 tools/eval_nav.py --repo .            # ... against this checkout as it is now
     python3 tools/eval_nav.py --kind find --json
     python3 tools/eval_nav.py --compare HEAD~3    # the same tasks with topomark from another rev
 
@@ -19,7 +20,7 @@ Task file (TOML), one ``[[task]]`` per question::
     query = "stamp"          # what the agent types; {line:path#Qual} = a line inside that symbol
     args = ["--limit", "20"] # optional extra arguments
     gold = "src/topomark/stamps.py#Stamps"   # or a list (any one counts); "path" alone = that file
-    repo = "self"            # "self" (--repo, default this checkout) or "synth" (tools/synth_repo.py)
+    repo = "self"            # "self" (the snapshot, or --repo) or "synth" (tools/synth_repo.py)
     trace = "..."            # locate only: written to a file and passed as --trace FILE
     expect = "miss"          # optional, default "hit": a control the command must NOT answer with gold
 
@@ -48,16 +49,29 @@ that expect a hit. ``expect = "miss"`` makes a task a control (``tests-for
 among the candidates at all, it is reported as ``controls held n/m``, and it is
 kept out of hit@k and MRR.
 
-Every gold is checked before anything runs (the file exists, the symbol is
-declared there); a stale gold exits 2 so the tasks can't silently rot.
+The target of ``repo = "self"`` tasks is a frozen copy of this repository: the
+task file's top-level ``snapshot = "<rev>"`` is exported with ``git archive``
+into a temporary git repo (without ``tools/eval/``, so the questions are not in
+the text being searched). The numbers then move only when topomark's code does,
+never because this repository gained a file. ``--repo DIR`` runs on a directory
+as it is instead (``--repo .``: does the tool still find its own code today?).
+Without the snapshot's commit (a shallow clone, an sdist) the run exits 2.
+
+Every gold is checked before anything runs: the file exists, the symbol is
+declared there, and for a ``locate`` message two consecutive words of the
+message stand inside the gold symbol (the code that prints it may move while the
+old symbol stays). A stale gold exits 2 so the tasks can't silently rot.
+
+``--fail-under X`` exits 1 when the MRR over all scored tasks is below X or any
+task ended in an error (what CI runs).
 
 ``--compare REV`` exports ``src/`` at REV with ``git archive``, runs this script
 on it in a subprocess (``--src``; the subprocess owns its own temporary cache),
 and prints both side by side; the tasks, the target repo and the synthetic repo
 stay the current ones. So does the target's ``topomark.toml``, which REV may not
-read: topomark rejects keys it does not know, and a REV before the key existed
-(``suite`` in ``[[tests.runner]]``, before 21e15fb) would fail every task with
-``CONFIG``. The REV side therefore runs with ``--compat-config``: when its
+read: topomark up to 0.2.0 rejects keys it does not know (later versions warn and
+read on), and a REV before the key existed (``suite`` in ``[[tests.runner]]``,
+before 21e15fb) would fail every task with ``CONFIG``. The REV side therefore runs with ``--compat-config``: when its
 topomark rejects the file, it reads a temporary copy (``--config``) without each
 key its ``CONFIG`` errors name, and the report lists the keys dropped. That side
 then runs without what they configure (the runner's suite command), as REV did.
@@ -75,6 +89,7 @@ import io
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -91,6 +106,7 @@ ANSWER_KEY = {"find": "results", "search": "results", "locate": "results", "brie
 ANSWERS = {"NOT_FOUND", "UNSUPPORTED"}  # error codes that are the command's answer (nothing found): a miss
 EXPECT = ("hit", "miss")
 SYNTH_FILES = 150
+SNAPSHOT_LEAVES_OUT = "tools/eval"  # the questions themselves: not part of the text being searched
 CONFIG_FILE = "topomark.toml"
 _LINE = re.compile(r"\{line:([^}#]+)#([^}]+)\}")
 
@@ -179,15 +195,41 @@ def load_tasks(path: Path) -> list[dict]:
     return tasks
 
 
+def snapshot_rev(path: Path) -> str | None:
+    """The task file's ``snapshot = "<rev>"``: the revision of this repository "self" tasks run on."""
+    with open(path, "rb") as fh:
+        rev = tomllib.load(fh).get("snapshot")
+    if rev is not None and not (isinstance(rev, str) and rev.strip()):
+        raise SystemExit("eval: snapshot must be a revision (a tag or a commit id)")
+    return rev
+
+
+def _prints(task: dict, repo: Path, path: str, qual: str) -> bool:
+    """Does the gold symbol still hold the message a ``locate`` task asks about? True when two
+    consecutive words of the message stand inside the symbol's lines (interpolated values break a
+    message into pieces, so the whole line is rarely there)."""
+    words = task["query"].split()
+    with open(repo / path, encoding="utf-8", errors="replace", newline="") as fh:
+        lines = fh.read().replace("\r\n", "\n").split("\n")
+    for s in _symbols(repo, path):
+        if s.qualname == qual:
+            body = "\n".join(lines[s.start - 1:s.end])
+            return any(f"{a} {b}" in body for a, b in zip(words, words[1:]))
+    return False
+
+
 def stale_golds(task: dict, repo: Path) -> list[str]:
     bad = []
     specs = list(task["gold"]) + [f"{p}#{q}" for p, q in _LINE.findall(task.get("query", "") + task.get("trace", ""))]
+    message = task["kind"] == "locate" and task.get("expect", "hit") == "hit" and len(task.get("query", "").split()) > 1
     for g in specs:
         path, _, qual = g.partition("#")
         if not (repo / path).is_file():
             bad.append(f"{task['id']}: {g}: no such file")
         elif qual and not any(s.qualname == qual for s in _symbols(repo, path)):
             bad.append(f"{task['id']}: {g}: no symbol {qual!r} in {path}")
+        elif qual and message and g in task["gold"] and not _prints(task, repo, path, qual):
+            bad.append(f"{task['id']}: {g}: no two consecutive words of the message are in {qual!r} any more")
     return bad
 
 
@@ -212,7 +254,7 @@ _UNKNOWN_KEY = re.compile(r"unknown key ([\w-]+)\.([\w-]+)")
 def drop_rejected(raw: dict, message: str) -> list[str]:
     """Remove from ``raw`` (a parsed topomark.toml) what a CONFIG error ``message`` rejects; returns
     the names removed, [] when the message names nothing in ``raw``. These three shapes are how
-    every topomark since 0.1.0 rejects a section or key it does not know."""
+    topomark 0.1.0 to 0.2.0 reject a section or key they do not know."""
     m = _UNKNOWN_SECTION.search(message)
     if m and m.group(1) in raw:
         del raw[m.group(1)]
@@ -483,17 +525,51 @@ class StaleGold(Exception):
         self.problems = problems
 
 
+class NoSnapshot(Exception):
+    pass
+
+
+def _export(rev: str, dest: Path, *paths: str) -> str | None:
+    """``git archive`` of this repository at ``rev`` (all of it, or ``paths``) unpacked into ``dest``;
+    returns git's complaint when it cannot (unknown revision, not a git checkout), else None."""
+    try:
+        archive = subprocess.run(["git", "-C", str(ROOT), "archive", "--format=tar", rev, *paths], capture_output=True)
+    except OSError as e:
+        return str(e)
+    if archive.returncode != 0:
+        return archive.stderr.decode("utf-8", errors="replace").strip()
+    with tarfile.open(fileobj=io.BytesIO(archive.stdout)) as tf:
+        if hasattr(tarfile, "data_filter"):
+            tf.extractall(dest, filter="data")
+        else:  # Python 3.11 before 3.11.4
+            tf.extractall(dest)
+    return None
+
+
+def export_snapshot(rev: str, dest: Path) -> Path:
+    """This repository at ``rev`` as a git repo of its own in ``dest``, without the eval's tasks."""
+    dest.mkdir(parents=True, exist_ok=True)
+    problem = _export(rev, dest)
+    if problem is not None:
+        raise NoSnapshot(f"cannot export snapshot {rev!r}: {problem}")
+    shutil.rmtree(dest / SNAPSHOT_LEAVES_OUT, ignore_errors=True)
+
+    def git(*args: str) -> None:
+        subprocess.run(["git", "-C", str(dest), "-c", "user.name=eval", "-c", "user.email=eval@example.invalid",
+                        "-c", "commit.gpgsign=false", "-c", "core.autocrlf=false", *args], capture_output=True,
+                       check=True)
+
+    git("init", "-q")
+    git("add", "-A")
+    git("commit", "-q", "--no-verify", "-m", f"snapshot {rev}")
+    return dest
+
+
 def compare_run(rev: str, args: argparse.Namespace, repo: Path) -> dict:
     with tempfile.TemporaryDirectory(prefix="topomark-eval-rev-") as tmp:
-        archive = subprocess.run(["git", "-C", str(ROOT), "archive", "--format=tar", rev, "src"], capture_output=True)
-        if archive.returncode != 0:
-            raise SystemExit(f"eval: --compare {rev}: git archive failed:\n"
-                             f"{archive.stderr.decode('utf-8', errors='replace')}")
-        with tarfile.open(fileobj=io.BytesIO(archive.stdout)) as tf:
-            if hasattr(tarfile, "data_filter"):
-                tf.extractall(tmp, filter="data")
-            else:  # Python 3.11 before 3.11.4
-                tf.extractall(tmp)
+        problem = _export(rev, Path(tmp), "src")
+        if problem is not None:
+            raise SystemExit(f"eval: --compare {rev}: git archive failed:\n{problem}")
         # No TOPOMARK_CACHE here: the child's main() owns its cache (a fresh temporary one, as in any run
         # without --cache), so REV's index never meets the current side's.
         env = dict(os.environ, PYTHONUTF8="1")
@@ -578,7 +654,7 @@ def render(result: dict, other: dict | None = None) -> str:
     lines.append("")
     for label, res in [("current", result)] + ([(other["rev"], other)] if other else []):
         s = res["summary"]
-        lines.append(f"[{label}]")
+        lines.append(f"[{label}]" + (f"  on snapshot {res['snapshot']}" if res.get("snapshot") else ""))
         for target, keys in sorted(res.get("config_dropped", {}).items()):
             lines.append(f"  config  {target}: read {CONFIG_FILE} without {', '.join(keys)} "
                          "(this topomark rejects them)")
@@ -590,7 +666,8 @@ def render(result: dict, other: dict | None = None) -> str:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--tasks", type=Path, default=HERE / "eval" / "tasks.toml")
-    ap.add_argument("--repo", type=Path, default=ROOT, help="target of repo = \"self\" tasks (default: this checkout)")
+    ap.add_argument("--repo", type=Path, help="target of repo = \"self\" tasks: a directory as it is now "
+                                              "(default: the task file's snapshot of this repository)")
     ap.add_argument("--src", type=Path, default=ROOT / "src", help="topomark source to evaluate (default: this checkout)")
     ap.add_argument("--kind", action="append", choices=sorted(KIND_COMMAND), help="only these kinds (repeatable)")
     ap.add_argument("--only", action="append", metavar="ID", help="only these task ids (repeatable)")
@@ -601,6 +678,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--compat-config", action="store_true",
                     help="if --src rejects keys of a target's topomark.toml, read a copy without them "
                          "(used by --compare)")
+    ap.add_argument("--fail-under", type=float, metavar="MRR",
+                    help="exit 1 if the MRR over all scored tasks is below this, or a task ended in an error")
     ap.add_argument("--json", action="store_true", help="print one JSON object")
     args = ap.parse_args(argv)
     args.tasks = args.tasks.resolve()
@@ -609,7 +688,23 @@ def main(argv: list[str] | None = None) -> int:
         tasks = [t for t in tasks if t["kind"] in args.kind]
     if args.only:
         tasks = [t for t in tasks if t["id"] in args.only]
-    repo = args.repo.resolve()
+    rev = None if args.repo else snapshot_rev(args.tasks)
+    with tempfile.TemporaryDirectory(prefix="topomark-eval-snapshot-") as snap:
+        if args.repo:
+            repo = args.repo.resolve()
+        elif rev and any(t["repo"] == "self" for t in tasks):
+            try:
+                repo = export_snapshot(rev, Path(snap).resolve() / "self")
+            except NoSnapshot as e:
+                sys.stderr.write(f"eval: {e}\n  fetch it (`git fetch --tags`), or run on this checkout as it is "
+                                 "with `--repo .`\n")
+                return 2
+        else:
+            repo = ROOT
+        return _run(args, tasks, repo, rev)
+
+
+def _run(args: argparse.Namespace, tasks: list[dict], repo: Path, rev: str | None) -> int:
     # The one place TOPOMARK_CACHE is set (a --compare child sets its own, in its own process).
     old_cache = os.environ.get("TOPOMARK_CACHE")
     tmp_cache = None if args.cache else tempfile.TemporaryDirectory(prefix="topomark-eval-cache-")
@@ -627,6 +722,7 @@ def main(argv: list[str] | None = None) -> int:
             os.environ["TOPOMARK_CACHE"] = old_cache
         if tmp_cache is not None:
             tmp_cache.cleanup()
+    result["snapshot"] = rev
     other = compare_run(args.compare, args, repo) if args.compare else None
     if args.json:
         payload = dict(result)
@@ -635,6 +731,12 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(payload, ensure_ascii=False))
     else:
         print(render(result, other))
+    if args.fail_under is not None:
+        block = result["summary"]["all"]
+        if block["errors"] or (block["mrr"] or 0.0) < args.fail_under:
+            sys.stderr.write(f"eval: below the floor: MRR {block['mrr']} (floor {args.fail_under}), "
+                             f"errors {block['errors']}\n")
+            return 1
     return 0
 
 

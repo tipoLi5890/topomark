@@ -12,12 +12,17 @@ import unittest
 
 import tests.harness  # noqa: F401  (puts src/ on sys.path)
 from topomark.lang.brace import mask_preprocessor, preprocessor_branches
+from topomark.lang.cfamily import CFamily
 from topomark.lang.csharp import CSharp
-from topomark.lang.extra import CFamily, Dart, Go, Kotlin, Rust, Swift
+from topomark.lang.dart import Dart
+from topomark.lang.go import Go
 from topomark.lang.js_ts import JsTs
+from topomark.lang.kotlin import Kotlin
 from topomark.lang.python import SYNTAX as PY
+from topomark.lang.rust import Rust
 from topomark.lang.scan import mask
 from topomark.lang.simple import mask_shell
+from topomark.lang.swift import Swift
 
 
 def code(text: str, syntax) -> str:

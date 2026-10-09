@@ -5,11 +5,16 @@
 # a file or a name for `brief`, a changed file for `tests-for`. Do not tune the
 # queries to the tool: when a gold answer moves with the code, update the gold only.
 #
-# repo = "self" is this checkout; repo = "synth" is the small synthetic repo that
-# tools/synth_repo.py generates (its import chains are fixed files).
+# repo = "self" is this repository at `snapshot` below (exported by the eval, so the
+# text being searched does not change under the tasks); repo = "synth" is the small
+# synthetic repo that tools/synth_repo.py generates (its import chains are fixed files).
+# Golds name code at the snapshot. Moving the snapshot is a deliberate step: fix the
+# golds that moved, rerun, and record the new numbers in docs/pilots.md.
 #
 # expect = "miss" marks a control: the command must NOT return the gold (the gold
 # still has to exist). It counts under "controls held", never in hit@k or MRR.
+
+snapshot = "v0.2.0"
 
 # ---------------------------------------------------------------- find: a name fragment
 [[task]]
@@ -80,7 +85,8 @@ gold = ["src/topomark/stamps.py#unit_surface_hash", "src/topomark/workspace.py#W
 id = "search-secret-refusal"
 kind = "search"
 query = "refuse to read secret files"
-gold = ["src/topomark/repo.py#read_text", "src/topomark/repo.py#is_secret"]
+gold = ["src/topomark/repo.py#safe_path", "src/topomark/repo.py#is_secret"]
+note = "the refusal moved from read_text into safe_path (82e13f5)"
 
 [[task]]
 id = "search-runner-placeholders"
@@ -111,7 +117,8 @@ gold = ["src/topomark/commands/init.py#Planner", "src/topomark/commands/init.py#
 id = "locate-secret"
 kind = "locate"
 query = "error: REFUSED: refusing to read a secret-looking file: .env"
-gold = "src/topomark/repo.py#read_text"
+gold = ["src/topomark/repo.py#safe_path", "src/topomark/index.py#Index.info"]
+note = "two places raise it: the path check every read goes through, and the index before it caches anything"
 
 [[task]]
 id = "locate-config-section"

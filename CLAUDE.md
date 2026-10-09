@@ -16,6 +16,7 @@ python3 -m topomark capabilities --json         # with PYTHONPATH=src
 python3 tools/sync_version.py --check           # manifests match pyproject
 python3 tools/sync_codex_manifests.py --check   # .codex-plugin/ and .agents/ generated from .claude-plugin/
 python3 tools/lint_skills.py                    # SKILL.md frontmatter and size gates
+python3 tools/eval_nav.py --fail-under 0.70     # navigation eval on the pinned snapshot (CI's floor)
 ```
 
 ruff and mypy run in CI only (`pip install ruff mypy` there); their settings are in `pyproject.toml`.
@@ -40,9 +41,9 @@ ruff and mypy run in CI only (`pip install ruff mypy` there); their settings are
   blobs as git objects (`git hash-object -w`), never as files. The analysis cache lives in the user
   cache directory.
 - **Files come from git**, secrets are never read (`repo.SECRET_PATTERNS`, not configurable).
-- **One module per command** in `src/topomark/commands/`, listed in `commands._NAMES`, exposing
-  `register(sub, common)` and `run(args, ctx) -> Result`. Heavy imports go inside `run` so `--help`
-  stays fast. `capabilities` reads the live parser, so a command can't exist undescribed.
+- **One module per command** in `src/topomark/commands/`, listed in `commands._NAMES` and imported
+  in `COMMAND_MODULES()`, exposing `register(sub, common)` and `run(args, ctx) -> Result`. Heavy
+  imports go inside `run` so `--help` stays fast. `capabilities` reads the live parser, so a command can't exist undescribed.
 - **Docs are executable.** Every `topomark ...` line in a ```bash block of README.md, docs/,
   skills/ and the templates must parse with the real parser (`tests/test_meta.py`).
 - **English output only.** Templates, generated reports and drafted rows are English; the only
@@ -52,8 +53,8 @@ ruff and mypy run in CI only (`pip install ruff mypy` there); their settings are
 ## Adding a command
 
 1. `src/topomark/commands/<name>.py` with `register` and `run`; add the name to `commands._NAMES`
-   (underscores become the module name; the CLI name is what `add(sub, common, "<cli-name>", ...)`
-   registers).
+   and to the import list in `COMMAND_MODULES()` (underscores become the module name; the CLI name
+   is what `add(sub, common, "<cli-name>", ...)` registers).
 2. Tests in `tests/` using `tests.harness.TempRepo` (a throwaway git repo) and `repo.json(...)`.
 3. Document it in README.md (command table), `skills/topomark/SKILL.md` (cheat sheet) and, for
    navigation commands, `skills/topomark/reference/commands.md`.
@@ -77,7 +78,7 @@ ruff and mypy run in CI only (`pip install ruff mypy` there); their settings are
 | `src/topomark/workspace.py` | areas, units, fan-in, generated reports, `check` problems |
 | `src/topomark/docs.py` | area frontmatter, ownership, units |
 | `src/topomark/stamps.py` | review stamps |
-| `src/topomark/navigate.py` | shared engine for the navigation commands |
+| `src/topomark/navigate.py` | `Nav`, shared by the navigation commands; next to it `testsel.py`, `runners.py`, `imports.py`, `ranking.py`, `masking.py` |
 | `src/topomark/templates/` | `init` templates (package data) |
 | `skills/topomark/` | the agent skill |
 | `tools/` | release and lint helpers (stdlib only) |

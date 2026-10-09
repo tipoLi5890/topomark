@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from typing import NoReturn
 
@@ -30,6 +31,14 @@ _JSON_REQUESTED = False
 
 def _emit_json(payload: dict) -> None:
     sys.stdout.write(json.dumps(payload, ensure_ascii=False, allow_nan=False) + "\n")
+
+
+def _discard_stdout() -> None:
+    """Point stdout at the null device, so the interpreter's flush at exit does not fail again."""
+    try:
+        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+    except (OSError, ValueError):
+        pass
 
 
 def _error_payload(code: str, message: str, exit_code: int, remediation: str) -> dict:
@@ -123,7 +132,11 @@ def main(argv: list[str] | None = None) -> int:
         return EXIT["OK"]
     handler = getattr(args, "handler", None)
     if handler is None:
-        parser.print_help(sys.stderr)
+        if args.json:
+            _emit_json(_error_payload("USAGE", "topomark: no command given", EXIT["USAGE"],
+                                      "Run `topomark --help` for the commands."))
+        else:
+            parser.print_help(sys.stderr)
         return EXIT["USAGE"]
 
     from .context import Context
@@ -153,8 +166,12 @@ def main(argv: list[str] | None = None) -> int:
                 traceback.print_exc()
         return EXIT["INTERNAL"]
 
-    if args.json:
-        _emit_json({"schema_version": SCHEMA_VERSION, "command": args.command, **result.data})
-    elif result.text:
-        sys.stdout.write(result.text if result.text.endswith("\n") else result.text + "\n")
+    try:
+        if args.json:
+            _emit_json({"schema_version": SCHEMA_VERSION, "command": args.command, **result.data})
+        elif result.text:
+            sys.stdout.write(result.text if result.text.endswith("\n") else result.text + "\n")
+        sys.stdout.flush()
+    except BrokenPipeError:  # the reader left (`| head`): not an error, and nothing more to say
+        _discard_stdout()
     return result.exit

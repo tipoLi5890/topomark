@@ -15,7 +15,9 @@ from . import docs as D
 from .context import Context
 from .graph import Graph, build_tables, tables_key
 from .index import Index
-from .stamps import Stamps, h16, unit_surface_hash
+from .repo import git_objects
+from .lang import registry
+from .stamps import Stamps, blob_ids, blob_text, h16, unit_surface_hash
 
 FAN_RX = re.compile(r"fan-in\s*(\d+)\s*/\s*(\d+)", re.I)
 ROW_RX = re.compile(r"^\|\s*`([^`]+)`[^|`]*\|")
@@ -39,6 +41,8 @@ class Workspace:
     def __init__(self, ctx: Context) -> None:
         self.ctx = ctx
         self.cfg = ctx.config
+        self._blobs: dict[str, str] = {}  # git blob ids of files as they are now, asked for once
+        self._reviewed: dict[str, str | None] = {}  # text of reviewed blobs by id (None: git has pruned it)
 
     # ---------------------------------------------------------------- loading
     @cached_property
@@ -90,6 +94,52 @@ class Workspace:
     def unit_hash(self, unit: str) -> str:
         files = self.units[unit]["files"]
         return unit_surface_hash({f: self.surface_hash(f) for f in files})
+
+    def interface_changed(self, unit: str) -> bool:
+        """Did the unit's interface change since its review? Not when the stamped hash still matches.
+        When it does not, the question is put to the code, not to the hash: the reviewed content
+        (the stamp's git blobs) is read again with today's adapters and compared with the files as
+        they are. So an adapter that reads a signature differently after an upgrade does not ask
+        for every row to be reviewed again, and a change the old adapter could not see is caught.
+        Without the reviewed blobs (an old stamp, or git pruned them) the hashes decide."""
+        rec = self.stamps.units.get(unit) or {}
+        if rec.get("surface") == self.unit_hash(unit):
+            return False
+        files = self.units[unit]["files"]
+        old: dict[str, str] = rec.get("blobs") or {}
+        if not old or set(old) != set(files):
+            return True  # no record of what was reviewed, or files joined or left the unit
+        new = self._current_blobs(files)
+        for f in files:
+            if old[f] == new.get(f):
+                continue  # the same content the reviewer saw
+            text = self._reviewed[old[f]] if old[f] in self._reviewed else blob_text(self.ctx.root, old[f])
+            if text is None or f not in self.infos or self.infos[f].lang == "large":
+                return True
+            if h16(registry.analyze(f, text).surface) != self.surface_hash(f):
+                return True
+        return False
+
+    def _prefetch_reviewed(self, units: list[str]) -> None:
+        """Read, in two git processes for all of ``units``, what ``interface_changed`` will ask for:
+        the blob ids of their files as they are, and the text of every reviewed blob that differs.
+        After an upgrade that reads declarations differently many stamps mismatch at once, on every
+        ``check`` until the units are stamped again."""
+        todo = [u for u in units if (self.stamps.units.get(u) or {}).get("surface") != self.unit_hash(u)]
+        files = sorted({f for u in todo for f in self.units[u]["files"]})
+        if not files:
+            return
+        new = self._current_blobs(files)
+        want = sorted({b for u in todo for f, b in ((self.stamps.units[u].get("blobs") or {}).items())
+                       if isinstance(b, str) and new.get(f) != b and b not in self._reviewed})
+        if want:
+            self._reviewed.update(git_objects(self.ctx.root, want))
+
+    def _current_blobs(self, files: list[str]) -> dict[str, str]:
+        missing = [f for f in files if f not in self._blobs]
+        if missing:
+            self._blobs.update(blob_ids(self.ctx.root, missing, write=False))
+        return self._blobs
 
     def unit_fanin(self, unit: str) -> tuple[int, int]:
         prod: set[str] = set()
@@ -328,6 +378,8 @@ class Workspace:
                                                        f"reads {st.version}. Review, then `topomark stamp --baseline --force`."))
             return P
         by_name = {a.name: a for a in self.areas}
+        self._prefetch_reviewed([unit for unit, u in self.units.items()
+                                 if unit in st.units and not (only_area and u["area"] != only_area)])
         for unit, u in sorted(self.units.items()):
             if only_area and u["area"] != only_area:
                 continue
@@ -336,7 +388,7 @@ class Workspace:
             if not rec:
                 P.append(Problem("STAMP_MISSING", afile, f"`{unit}` has no review stamp (write its row, then "
                                                          f"`topomark stamp {unit}`)", unit))
-            elif rec.get("surface") != self.unit_hash(unit):
+            elif self.interface_changed(unit):
                 P.append(Problem("STAMP_CHANGED", afile, f"`{unit}` changed its interface since review "
                                                          f"(`topomark diff {unit}`, update the row, `topomark stamp {unit}`)",
                                  unit))

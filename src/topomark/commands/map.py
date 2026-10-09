@@ -52,7 +52,8 @@ def _render(nav, chosen: dict[str, list], order: list[str]) -> str:
 def run(args, ctx) -> Result:
     import heapq
 
-    from ..navigate import Nav, estimate_tokens, name_weight, name_weight_bound, outline_size, pagerank_files
+    from ..navigate import Nav, estimate_tokens
+    from ..ranking import name_weight, name_weight_bound, outline_size, pagerank_files
 
     nav = Nav(ctx)
     nav.check_area(args.area)

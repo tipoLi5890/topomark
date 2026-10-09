@@ -7,10 +7,12 @@ created under a temporary directory with a local git identity.
 
 from __future__ import annotations
 
+import atexit
 import contextlib
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -22,6 +24,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 os.environ["TOPOMARK_CACHE"] = tempfile.mkdtemp(prefix="topomark-test-cache-")
+atexit.register(shutil.rmtree, os.environ["TOPOMARK_CACHE"], ignore_errors=True)
 
 from topomark.cli import main  # noqa: E402
 
@@ -50,13 +53,17 @@ class TempRepo:
         self._tmp = tempfile.TemporaryDirectory(prefix="topomark-repo-")
         self.root = Path(self._tmp.name).resolve()
         self.git("init", "-q")
-        self.git("symbolic-ref", "HEAD", "refs/heads/main")  # `init -b` needs git 2.28
-        # a global core.hooksPath (the developer's own hooks) must not apply to throwaway repos;
-        # pin the repo's own hooks dir, which `hook install` tests write into
-        self.git("config", "core.hooksPath", str(self.root / ".git" / "hooks"))
-        self.git("config", "user.name", "Test")
-        self.git("config", "user.email", "test@example.invalid")
-        self.git("config", "commit.gpgsign", "false")
+        # Written straight into .git instead of five more git processes per repo (most of a test run is
+        # git start-up). HEAD on main: `init -b` needs git 2.28. A global core.hooksPath (the developer's
+        # own hooks) must not apply to throwaway repos: pin the repo's own hooks dir, which the
+        # `hook install` tests write into.
+        dot_git = self.root / ".git"
+        with open(dot_git / "HEAD", "w", encoding="utf-8", newline="\n") as fh:
+            fh.write("ref: refs/heads/main\n")
+        with open(dot_git / "config", "a", encoding="utf-8", newline="\n") as fh:
+            fh.write(f'[core]\n\thooksPath = "{(dot_git / "hooks").as_posix()}"\n'
+                     '[user]\n\tname = Test\n\temail = test@example.invalid\n'
+                     '[commit]\n\tgpgsign = false\n')
         if files:
             self.write(files)
             if commit:

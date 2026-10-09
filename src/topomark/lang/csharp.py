@@ -51,16 +51,61 @@ def _has_assign(h: str) -> bool:
     return re.search(r"(?<![=!<>+\-*/%&|^])=(?![=>])", h) is not None
 
 
+# What may stand right before a tuple type: `public (int, string) Pair`, `delegate (int, int) D(...)`.
+_BEFORE_TYPE = frozenset({
+    "public", "private", "protected", "internal", "static", "readonly", "const", "virtual", "override", "abstract",
+    "sealed", "async", "unsafe", "new", "extern", "volatile", "partial", "required", "final", "delegate", "event",
+    "ref", "file",
+})
+
+
 def _first_paren(h: str) -> int:
+    """The parenthesis that opens a parameter list: the first one outside type arguments that is not
+    a tuple type (``public (int, string) Find(int id)`` → the one after ``Find``)."""
     depth = 0
-    for k, ch in enumerate(h):
+    k = 0
+    while k < len(h):
+        ch = h[k]
         if ch == "<":
             depth += 1
         elif ch == ">":
             depth = max(0, depth - 1)
         elif ch == "(" and depth == 0:
-            return k
+            before = re.search(r"([A-Za-z_]\w*)?\s*$", h[:k])
+            word = before.group(1) if before else None
+            if not (word is None and not h[:k].strip()) and word not in _BEFORE_TYPE:
+                return k
+            close = _matching(h, k)
+            if close < 0:
+                return k
+            k = close
+        k += 1
     return -1
+
+
+def _matching(h: str, start: int) -> int:
+    depth = 0
+    for k in range(start, len(h)):
+        if h[k] == "(":
+            depth += 1
+        elif h[k] == ")":
+            depth -= 1
+            if depth == 0:
+                return k
+    return -1
+
+
+def _top_assign(h: str) -> bool:
+    """An ``=`` outside parentheses and brackets: an initializer, not a default argument."""
+    depth = 0
+    for m in re.finditer(r"[(\[]|[)\]]|(?<![=!<>+\-*/%&|^])=(?![=>])", h):
+        if m.group(0) in "([":
+            depth += 1
+        elif m.group(0) in ")]":
+            depth -= 1
+        elif depth <= 0:
+            return True
+    return False
 
 
 class CSharp(BraceLanguage):
@@ -163,6 +208,8 @@ class CSharp(BraceLanguage):
             return Decl(kind, m.group(2), self._exported(h, parent), attrs, signature=_sig(raw))
         arrow = h.find("=>")
         p = _first_paren(h)
+        if arrow >= 0 and _top_assign(h[:arrow]):
+            arrow = -1  # `Func<int, int> twice = x => x * 2`: a field whose value is a lambda
         if arrow >= 0:
             if re.search(r"\bthis\s*\[", h[:arrow]):
                 return Decl("indexer", "this[]", self._exported(h, parent), attrs, signature=_sig(raw, "=>"))
@@ -182,7 +229,7 @@ class CSharp(BraceLanguage):
                 return Decl(kind, mm.group(1), self._exported(h, parent), attrs, signature=_sig(raw))
             return None
         lhs = re.split(r"(?<![=!<>])=(?![=>])", h, maxsplit=1)[0]
-        names = re.findall(r"[A-Za-z_]\w*", lhs.split(",")[0])
+        names = re.findall(r"[A-Za-z_]\w*", _first_declarator(lhs))
         if not names:
             return None
         name = names[-1]
@@ -200,6 +247,20 @@ class Java(CSharp):
     java = True
     syntax = Syntax(line_comments=("//",), block_comments=(("/*", "*/"),), quotes=('"', "'"),
                     triple_quotes=('"""',), char_literals_only=True)
+
+
+def _first_declarator(lhs: str) -> str:
+    """``lhs`` up to the comma that starts a second declarator (``int a, b``); a comma inside type
+    arguments or brackets (``Map<String, Integer> counts``) is part of the type."""
+    depth = 0
+    for i, ch in enumerate(lhs):
+        if ch in "<([":
+            depth += 1
+        elif ch in ">)]":
+            depth -= 1
+        elif ch == "," and depth <= 0:
+            return lhs[:i]
+    return lhs
 
 
 def _sig(raw: str, cut: str = "{") -> str:

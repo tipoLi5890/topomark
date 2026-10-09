@@ -51,14 +51,15 @@ def _pick_json(pk) -> dict:
 
 
 def _tests(nav, picks, runners) -> dict:
-    from ..navigate import runner_commands
+    from ..runners import runner_commands
 
     commands, unmatched = runner_commands(runners, picks)
     return {"tests": [_pick_json(pk) for pk in picks], "commands": commands, "unmatched": [pk.path for pk in unmatched]}
 
 
 def _file_brief(nav, path: str) -> dict:
-    from ..navigate import code_map_row, depth_of, impact_file, select_tests
+    from ..navigate import code_map_row, depth_of, impact_file
+    from ..testsel import select_tests
 
     info = nav.info(path)
     imp = impact_file(nav, path, top=10**6)
@@ -87,7 +88,8 @@ def _file_brief(nav, path: str) -> dict:
 def _symbol_brief(nav, spec: str) -> dict:
     from collections import Counter
 
-    from ..navigate import code_map_row, impact_symbol, pick_tests, select_tests
+    from ..navigate import code_map_row, impact_symbol
+    from ..testsel import pick_tests, select_tests
 
     matches, candidates = nav.resolve(spec)
     if candidates:
