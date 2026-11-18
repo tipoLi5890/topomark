@@ -1,6 +1,6 @@
 {
   "name": "topomark",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "A zero-dependency code map for AI coding agents: progressive-disclosure docs, per-file review stamps that catch stale summaries, and fast symbol/impact/test navigation for git repositories.",
   "author": {
     "name": "Li, ching yu",

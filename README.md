@@ -101,10 +101,10 @@ git clone https://github.com/tipoLi5890/topomark ~/tools/topomark
 ```
 
 Put `~/tools/topomark/bin` on your `PATH` (e.g. `ln -s ~/tools/topomark/bin/topomark ~/.local/bin/topomark`).
-If you already use pipx, it can install the command instead (pipx is not required):
+Or install the command from PyPI with pipx (pipx is not required; `pip install topomark` works too):
 
 ```bash
-pipx install git+https://github.com/tipoLi5890/topomark
+pipx install topomark
 ```
 
 `bin/topomark` finds a Python 3.11+ interpreter itself (`python3.14` down to `python3`). It needs

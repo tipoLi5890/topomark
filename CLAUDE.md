@@ -79,8 +79,6 @@ Before the first PyPI release:
 
 - The one-time setup at the top of `.github/workflows/release.yml`: a PyPI trusted publisher and the
   `pypi` environment with a required reviewer.
-- README "Install" (and the translated READMEs in `.github/`): add `pipx install topomark` next to the git
-  instructions.
 
 ## Layout
 

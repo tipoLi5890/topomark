@@ -97,10 +97,10 @@ git clone https://github.com/tipoLi5890/topomark ~/tools/topomark
 ```
 
 把 `~/tools/topomark/bin` 加進 `PATH`（例如 `ln -s ~/tools/topomark/bin/topomark ~/.local/bin/topomark`）。
-已經在用 pipx 的話，也可以用它安裝成指令（不一定要裝 pipx）：
+也可以用 pipx 從 PyPI 安裝成指令（不一定要裝 pipx；`pip install topomark` 也可以）：
 
 ```bash
-pipx install git+https://github.com/tipoLi5890/topomark
+pipx install topomark
 ```
 
 `bin/topomark` 會自己找 Python 3.11 以上的直譯器（從 `python3.14` 往下找到 `python3`）。`PATH` 上需要有 `git`。

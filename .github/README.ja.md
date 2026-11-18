@@ -101,10 +101,10 @@ git clone https://github.com/tipoLi5890/topomark ~/tools/topomark
 ```
 
 `~/tools/topomark/bin` を `PATH` に加える（例：`ln -s ~/tools/topomark/bin/topomark ~/.local/bin/topomark`）。
-すでに pipx を使っているなら、pipx でコマンドとしてインストールしてもよい（pipx は必須ではない）。
+pipx で PyPI からコマンドとしてインストールしてもよい（pipx は必須ではなく、`pip install topomark` でもよい）。
 
 ```bash
-pipx install git+https://github.com/tipoLi5890/topomark
+pipx install topomark
 ```
 
 `bin/topomark` は Python 3.11 以上のインタープリターを自分で探す（`python3.14` から `python3` まで順に）。
