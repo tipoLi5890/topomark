@@ -75,11 +75,6 @@ pin. Workflow actions are pinned by commit SHA (the version in a comment) and bu
    approval in the `pypi` environment, publishes to PyPI (Trusted Publishing) and creates the GitHub
    release from the CHANGELOG section.
 
-Before the first PyPI release:
-
-- The one-time setup at the top of `.github/workflows/release.yml`: a PyPI trusted publisher and the
-  `pypi` environment with a required reviewer.
-
 ## Layout
 
 | Path | What |

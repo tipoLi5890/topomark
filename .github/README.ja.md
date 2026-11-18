@@ -20,34 +20,34 @@ topomark は AI コーディングエージェントのための、依存ゼロ�
 topomark（https://github.com/tipoLi5890/topomark）をインストールしてください。依存ゼロのコードマップと
 ナビゲーションの CLI です。そのうえで、このリポジトリで使えるように設定してください。
 
-1. clone する：git clone https://github.com/tipoLi5890/topomark ~/tools/topomark
-   （そのディレクトリがすでにあれば、代わりに git -C ~/tools/topomark pull を実行する）。
-2. PATH に通す：ln -sf ~/tools/topomark/bin/topomark ~/.local/bin/topomark を実行し、~/.local/bin が
-   PATH に入っていることを確かめる。topomark --version で確認する（Python 3.11 以上と git が必要）。
-3. このリポジトリで topomark doctor を実行し、報告された問題があれば教えてください。
-4. ~/tools/topomark/skills/topomark/SKILL.md を読み、以後はそのとおりに作業する。
-5. 次の 1 行を AGENTS.md に追加する。このリポジトリが CLAUDE.md を使っているなら CLAUDE.md に追加する：
+1. PyPI からインストールする：pipx install topomark（すでに入っていれば pipx upgrade topomark、
+   pipx がなければ python3 -m pip install --user topomark）。Python 3.11 以上と git が必要。
+   topomark --version で確認する。
+2. このリポジトリで topomark doctor を実行し、報告された問題があれば教えてください。
+3. https://raw.githubusercontent.com/tipoLi5890/topomark/main/skills/topomark/SKILL.md を読み
+   （リンクされている同じフォルダーの reference ファイルも）、以後はそのとおりに作業する。
+4. 次の 1 行を AGENTS.md に追加する。このリポジトリが CLAUDE.md を使っているなら CLAUDE.md に追加する：
    "Navigate with topomark: read docs/codemap/README.md first, then `topomark outline <file>` and
    `topomark symbol <file>#<Name>` instead of reading whole files; `topomark brief <file>` before
    an edit. After editing, run `topomark syntax`, run what `topomark tests-for --diff` prints and
    keep `topomark check` green."
-6. topomark init --dry-run を実行し、提案されたエリアを見せてください。私が同意するまでは何も書かないこと。
+5. topomark init --dry-run を実行し、提案されたエリアを見せてください。私が同意するまでは何も書かないこと。
    同意したら topomark init を実行し、エリアごとに topomark draft <area> --write を実行して、各行を埋める。
 ```
 
 コードマップができるまでの間も、`topomark map --tokens 2000` などのナビゲーションコマンドはすでに使える。
-`check` とレビュースタンプを使えるようにするのが手順 6 である。
+`check` とレビュースタンプを使えるようにするのが手順 5 である。
 
 ## 30 秒で試す
 
-ナビゲーションには、セットアップも設定ファイルも事前のインデックス作成も要らない。clone して、任意の git リポジトリに向けるだけでよい。
+ナビゲーションには、セットアップも設定ファイルも事前のインデックス作成も要らない。任意の git リポジトリでそのまま使える。
 
 ```bash
-git clone https://github.com/tipoLi5890/topomark ~/tools/topomark
 cd your-repo
-~/tools/topomark/bin/topomark map --tokens 2000      # token 予算内に収めた、重要度順のリポジトリマップ
+pipx run topomark map --tokens 2000      # token 予算内に収めた、重要度順のリポジトリマップ
 ```
 
+`pipx run` は PyPI からパッケージを取り、一時的な環境で実行する（`uvx topomark` も同じ）。
 何もインストールされず、リポジトリにも何も書き込まれない。
 
 ## topomark を使う理由
@@ -77,7 +77,7 @@ L2  シンボル単位のコード       topomark outline / symbol / refs：フ�
 
 ### 本当に依存ゼロ
 
-tree-sitter も言語サーバーもネットワークも使わない。`git clone` と Python 3.11 のインタープリターがあれば動き、
+tree-sitter も言語サーバーもネットワークも使わない。`pipx install`（または `git clone`）と Python 3.11 のインタープリターがあれば動き、
 CI でも pre-commit hook でもエージェントのサンドボックスでも同じように振る舞う。
 
 ### 毎ステップ実行できる速さ
@@ -93,7 +93,16 @@ CI でも pre-commit hook でもエージェントのサンドボックスでも
 
 ## インストール
 
-次のどちらでもよい。
+PyPI から：
+
+```bash
+pipx install topomark       # または：python3 -m pip install --user topomark
+topomark --version
+```
+
+Python 3.11 以上と、`PATH` 上の `git` が必要。`pipx upgrade topomark` で更新できる。
+
+**clone から使う**場合はインストール手順が要らない（下のプラグインも同じランチャーを使う）。
 
 ```bash
 git clone https://github.com/tipoLi5890/topomark ~/tools/topomark
@@ -101,14 +110,8 @@ git clone https://github.com/tipoLi5890/topomark ~/tools/topomark
 ```
 
 `~/tools/topomark/bin` を `PATH` に加える（例：`ln -s ~/tools/topomark/bin/topomark ~/.local/bin/topomark`）。
-pipx で PyPI からコマンドとしてインストールしてもよい（pipx は必須ではなく、`pip install topomark` でもよい）。
-
-```bash
-pipx install topomark
-```
-
-`bin/topomark` は Python 3.11 以上のインタープリターを自分で探す（`python3.14` から `python3` まで順に）。
-`PATH` に `git` が必要。
+更新は `git -C ~/tools/topomark pull`。`bin/topomark` は Python 3.11 以上のインタープリターを自分で探す
+（`python3.14` から `python3` まで順に）。
 
 **エージェントのプラグインとして。** このリポジトリ自体が Claude Code のプラグイン兼 marketplace（`.claude-plugin/`）であり、
 Codex のプラグイン（`.codex-plugin/`）でもあって、スキル [`skills/topomark`](../skills/topomark/SKILL.md) を 1 つ同梱している。

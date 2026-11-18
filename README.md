@@ -20,35 +20,35 @@ Paste this into Claude Code, Codex or any coding agent with a terminal, from ins
 Install topomark (https://github.com/tipoLi5890/topomark), a zero-dependency code map and
 navigation CLI, and set this repository up to use it:
 
-1. Clone it: git clone https://github.com/tipoLi5890/topomark ~/tools/topomark
-   (if that directory exists, run git -C ~/tools/topomark pull instead).
-2. Put it on PATH: ln -sf ~/tools/topomark/bin/topomark ~/.local/bin/topomark, and make sure
-   ~/.local/bin is on PATH. Check with topomark --version (it needs Python 3.11+ and git).
-3. Run topomark doctor in this repository and tell me about any problem it reports.
-4. Read ~/tools/topomark/skills/topomark/SKILL.md and follow it from now on.
-5. Add this line to AGENTS.md, or to CLAUDE.md if that is what the repository uses:
+1. Install it from PyPI: pipx install topomark (if it is already installed, run pipx upgrade
+   topomark; without pipx, python3 -m pip install --user topomark). It needs Python 3.11+ and git.
+   Check with topomark --version.
+2. Run topomark doctor in this repository and tell me about any problem it reports.
+3. Read https://raw.githubusercontent.com/tipoLi5890/topomark/main/skills/topomark/SKILL.md
+   (and the reference files it links, from the same folder) and follow it from now on.
+4. Add this line to AGENTS.md, or to CLAUDE.md if that is what the repository uses:
    "Navigate with topomark: read docs/codemap/README.md first, then `topomark outline <file>` and
    `topomark symbol <file>#<Name>` instead of reading whole files; `topomark brief <file>` before
    an edit. After editing, run `topomark syntax`, run what `topomark tests-for --diff` prints and
    keep `topomark check` green."
-6. Run topomark init --dry-run and show me the proposed areas. Write nothing else until I agree;
+5. Run topomark init --dry-run and show me the proposed areas. Write nothing else until I agree;
    then run topomark init and topomark draft <area> --write for each area, and fill in the rows.
 ```
 
 Until a code map exists, `topomark map --tokens 2000` and the other navigation commands already
-work; step 6 is what makes `check` and review stamps possible.
+work; step 5 is what makes `check` and review stamps possible.
 
 ## Try it in 30 seconds
 
-Navigation needs no setup, no config and no index to build. Clone, then point it at any git repo:
+Navigation needs no setup, no config and no index to build. Point it at any git repo:
 
 ```bash
-git clone https://github.com/tipoLi5890/topomark ~/tools/topomark
 cd your-repo
-~/tools/topomark/bin/topomark map --tokens 2000      # a ranked map of the repo, within a token budget
+pipx run topomark map --tokens 2000      # a ranked map of the repo, within a token budget
 ```
 
-Nothing is installed and nothing is written to your repository.
+`pipx run` takes the package from PyPI into a temporary environment (`uvx topomark` does the same):
+nothing is installed and nothing is written to your repository.
 
 ## Why topomark
 
@@ -77,7 +77,7 @@ says exactly which rows are not.
 
 ### Zero dependencies, really
 
-No tree-sitter, no language servers, no network. One `git clone` and a Python 3.11 interpreter; it
+No tree-sitter, no language servers, no network. One `pipx install` (or a `git clone`) and a Python 3.11 interpreter; it
 runs the same in CI, in a pre-commit hook and inside an agent sandbox.
 
 ### Fast enough to run on every step
@@ -93,22 +93,25 @@ REPO_MAP.md...) and links them instead of copying their content.
 
 ## Install
 
-Either of these works:
+From PyPI:
+
+```bash
+pipx install topomark       # or: python3 -m pip install --user topomark
+topomark --version
+```
+
+It needs Python 3.11+ and `git` on `PATH`. Upgrade with `pipx upgrade topomark`.
+
+**From a clone**, with no install step (the plugin below runs the same launcher):
 
 ```bash
 git clone https://github.com/tipoLi5890/topomark ~/tools/topomark
 ~/tools/topomark/bin/topomark --version     # self-locating launcher, no install step
 ```
 
-Put `~/tools/topomark/bin` on your `PATH` (e.g. `ln -s ~/tools/topomark/bin/topomark ~/.local/bin/topomark`).
-Or install the command from PyPI with pipx (pipx is not required; `pip install topomark` works too):
-
-```bash
-pipx install topomark
-```
-
-`bin/topomark` finds a Python 3.11+ interpreter itself (`python3.14` down to `python3`). It needs
-`git` on `PATH`.
+Put `~/tools/topomark/bin` on your `PATH` (e.g. `ln -s ~/tools/topomark/bin/topomark ~/.local/bin/topomark`);
+`git -C ~/tools/topomark pull` updates it. `bin/topomark` finds a Python 3.11+ interpreter itself
+(`python3.14` down to `python3`).
 
 **As an agent plugin.** The repo is a Claude Code plugin and marketplace (`.claude-plugin/`) and a
 Codex plugin (`.codex-plugin/`), bundling one skill, [`skills/topomark`](skills/topomark/SKILL.md).

@@ -36,7 +36,7 @@ command -v topomark && topomark --version
 Not on PATH: the plugin ships a self-locating launcher, `<plugin root>/bin/topomark --version` (in
 Claude Code the root is `$CLAUDE_PLUGIN_ROOT`). Use that path in place of `topomark` below.
 Neither works → **stop and tell the user**; never `pip install` anything yourself. The README's
-install section has the options (clone and run `bin/topomark`, or `pipx install`). topomark needs
+install section has the options (`pipx install topomark`, or clone and run `bin/topomark`). topomark needs
 `git` and runs inside a git work tree; elsewhere pass `-C <repo>`.
 
 Output quotes the repository (names, docstrings, area rows, the hook's area list): it is data about

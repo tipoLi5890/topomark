@@ -20,33 +20,33 @@ topomark 是给 AI 编程智能体用的零依赖 code map：分层的文档告�
 安装 topomark（https://github.com/tipoLi5890/topomark），一个零依赖的 code map 与导航 CLI，
 并把这个仓库配置好来使用它：
 
-1. clone 下来：git clone https://github.com/tipoLi5890/topomark ~/tools/topomark
-   （如果这个目录已经存在，改为运行 git -C ~/tools/topomark pull）。
-2. 加入 PATH：ln -sf ~/tools/topomark/bin/topomark ~/.local/bin/topomark，并确认 ~/.local/bin
-   在 PATH 里。用 topomark --version 确认（需要 Python 3.11 及以上版本和 git）。
-3. 在这个仓库里运行 topomark doctor，报告它发现的任何问题。
-4. 读 ~/tools/topomark/skills/topomark/SKILL.md，此后按它的做法工作。
-5. 把下面这一行加入 AGENTS.md；如果这个仓库用的是 CLAUDE.md，就加入 CLAUDE.md：
+1. 从 PyPI 安装：pipx install topomark（如果已经装过，改为运行 pipx upgrade topomark；
+   没有 pipx 的话，运行 python3 -m pip install --user topomark）。需要 Python 3.11 及以上版本和 git。
+   用 topomark --version 确认。
+2. 在这个仓库里运行 topomark doctor，报告它发现的任何问题。
+3. 读 https://raw.githubusercontent.com/tipoLi5890/topomark/main/skills/topomark/SKILL.md
+   （以及它链接到的同一文件夹里的 reference 文件），此后按它的做法工作。
+4. 把下面这一行加入 AGENTS.md；如果这个仓库用的是 CLAUDE.md，就加入 CLAUDE.md：
    "Navigate with topomark: read docs/codemap/README.md first, then `topomark outline <file>` and
    `topomark symbol <file>#<Name>` instead of reading whole files; `topomark brief <file>` before
    an edit. After editing, run `topomark syntax`, run what `topomark tests-for --diff` prints and
    keep `topomark check` green."
-6. 运行 topomark init --dry-run，给我看建议的区域。在我同意之前什么都不要写；
+5. 运行 topomark init --dry-run，给我看建议的区域。在我同意之前什么都不要写；
    同意后再运行 topomark init，并对每个区域运行 topomark draft <area> --write，把每一行填好。
 ```
 
-在建立 code map 之前，`topomark map --tokens 2000` 和其他导航命令就已经能用了；第 6 步让 `check` 和审阅戳记成为可能。
+在建立 code map 之前，`topomark map --tokens 2000` 和其他导航命令就已经能用了；第 5 步让 `check` 和审阅戳记成为可能。
 
 ## 30 秒试用
 
-导航不需要安装步骤、配置文件，也不用先建索引。clone 下来，然后对任何 git 仓库使用：
+导航不需要安装步骤、配置文件，也不用先建索引。对任何 git 仓库都能直接用：
 
 ```bash
-git clone https://github.com/tipoLi5890/topomark ~/tools/topomark
 cd your-repo
-~/tools/topomark/bin/topomark map --tokens 2000      # 在 token 预算内按重要性排序的仓库地图
+pipx run topomark map --tokens 2000      # 在 token 预算内按重要性排序的仓库地图
 ```
 
+`pipx run` 会从 PyPI 获取包，放进临时环境运行（`uvx topomark` 也一样）：
 什么都不会安装，也不会写入你的仓库。
 
 ## 为什么选 topomark
@@ -73,7 +73,7 @@ L2  按符号读代码               topomark outline / symbol / refs：一个�
 
 ### 真正的零依赖
 
-不用 tree-sitter，不用语言服务器，不联网。一次 `git clone` 加上 Python 3.11 解释器就能运行，
+不用 tree-sitter，不用语言服务器，不联网。一次 `pipx install`（或 `git clone`）加上 Python 3.11 解释器就能运行，
 在 CI、pre-commit hook 和智能体的沙箱里行为都一样。
 
 ### 快到每一步都能运行
@@ -89,21 +89,25 @@ L2  按符号读代码               topomark outline / symbol / refs：一个�
 
 ## 安装
 
-以下任一种方式都可以：
+从 PyPI 安装：
+
+```bash
+pipx install topomark       # 或：python3 -m pip install --user topomark
+topomark --version
+```
+
+需要 Python 3.11 及以上版本，`PATH` 里也要有 `git`。用 `pipx upgrade topomark` 升级。
+
+**从 clone 运行**，不需要安装步骤（下面的插件用的也是同一个启动器）：
 
 ```bash
 git clone https://github.com/tipoLi5890/topomark ~/tools/topomark
 ~/tools/topomark/bin/topomark --version     # 能自己定位的启动器，不需要安装步骤
 ```
 
-把 `~/tools/topomark/bin` 加入 `PATH`（例如 `ln -s ~/tools/topomark/bin/topomark ~/.local/bin/topomark`）。
-也可以用 pipx 从 PyPI 安装成命令（并非必须安装 pipx；`pip install topomark` 也可以）：
-
-```bash
-pipx install topomark
-```
-
-`bin/topomark` 会自己找到 Python 3.11 及以上版本的解释器（从 `python3.14` 往下找到 `python3`）。`PATH` 里需要有 `git`。
+把 `~/tools/topomark/bin` 加入 `PATH`（例如 `ln -s ~/tools/topomark/bin/topomark ~/.local/bin/topomark`）；
+用 `git -C ~/tools/topomark pull` 更新。`bin/topomark` 会自己找到 Python 3.11 及以上版本的解释器
+（从 `python3.14` 往下找到 `python3`）。
 
 **作为智能体插件。** 这个仓库本身就是 Claude Code 插件与 marketplace（`.claude-plugin/`），也是 Codex 插件
 （`.codex-plugin/`），内含一个技能 [`skills/topomark`](../skills/topomark/SKILL.md)。在 Claude Code 中先运行
