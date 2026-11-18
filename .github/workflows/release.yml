@@ -92,7 +92,9 @@ jobs:
       # Syft reads the installed package's metadata (pkg:pypi/topomark@X.Y.Z, MIT); topomark has no
       # dependencies, so the SBOM says what the wheel is and that nothing else comes with it.
       - name: Install the wheel into a folder to describe
-        run: python -m pip install --no-deps --no-compile --target "$RUNNER_TEMP/sbom-root" dist/*.whl
+        run: |
+          python -m pip install --no-deps --no-compile --target "$RUNNER_TEMP/sbom-root" dist/*.whl
+          mkdir -p sbom  # the SBOM action writes its output file but does not create the folder
       # One component (the package, not each of its files), named after the package rather than the
       # runner's temporary folder.
       - name: SBOM (CycloneDX JSON)
