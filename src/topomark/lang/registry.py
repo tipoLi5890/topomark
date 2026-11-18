@@ -3,7 +3,7 @@ one instance per call is cheap and avoids cross-file leakage."""
 
 from __future__ import annotations
 
-from typing import Callable
+from collections.abc import Callable
 
 from .base import FileInfo
 
@@ -62,4 +62,11 @@ def supported_extensions() -> list[str]:
 
 
 def analyze(path: str, text: str) -> FileInfo:
-    return adapter_for(path).analyze(path, text)  # type: ignore[attr-defined]
+    """One file's analysis. A file built to exhaust a parser (JSON or TOML nested thousands deep, a
+    huge ``__all__`` literal) is read as plain text instead of ending every whole-repo command."""
+    try:
+        return adapter_for(path).analyze(path, text)  # type: ignore[attr-defined]
+    except (RecursionError, MemoryError):
+        from .simple import Plain
+
+        return Plain().analyze(path, text)

@@ -2,25 +2,30 @@
 
 from __future__ import annotations
 
+import argparse
 import shutil
 import sys
+from typing import TYPE_CHECKING, Any
 
 from . import Result
 from ._common import add
 
+if TYPE_CHECKING:
+    from ..context import Context
 
-def register(sub, common) -> None:
+
+def register(sub: Any, common: argparse.ArgumentParser) -> None:
     p = add(sub, common, "doctor", "check Python, git, the config, tracked secrets and the cache")
     p.set_defaults(handler=run)
 
 
-def run(args, ctx) -> Result:
+def run(args: argparse.Namespace, ctx: Context) -> Result:
     from .. import __version__
     from ..errors import TopomarkError
     from ..index import cache_dir
     from ..repo import is_secret
 
-    checks = []
+    checks: list[dict[str, Any]] = []
 
     def add_check(name: str, ok: bool, detail: str, hint: str = "", warn: bool = False) -> None:
         status = "ok" if ok else ("warn" if warn else "fail")

@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
+import argparse
+from typing import TYPE_CHECKING, Any
+
 from . import Result
 from ._common import add
 
+if TYPE_CHECKING:
+    from ..context import Context
+    from ..lang.base import Symbol
+    from ..navigate import Nav
 
-def register(sub, common) -> None:
+
+def register(sub: Any, common: argparse.ArgumentParser) -> None:
     p = add(sub, common, "symbol", "print just one symbol's source (file#Name, file#Outer.Name, or a bare Name)",
             "Prints the symbol's lines with line numbers (like `cat -n`). With a bare Name the repo is\n"
             "searched; a name declared in several files lists the candidates and exits 4. Overloads in\n"
@@ -22,7 +30,7 @@ def register(sub, common) -> None:
     p.set_defaults(handler=run)
 
 
-def _skeleton(nav, path: str, s, lo: int, hi: int) -> tuple[list[str], str, list[list[int]]]:
+def _skeleton(nav: Nav, path: str, s: Symbol, lo: int, hi: int) -> tuple[list[str], str, list[list[int]]]:
     """Numbered lines, plain text, and the left-out ranges of a skeleton of ``s``."""
     from ..navigate import skeleton_gaps
 
@@ -47,7 +55,7 @@ def _skeleton(nav, path: str, s, lo: int, hi: int) -> tuple[list[str], str, list
     return numbered, "\n".join(plain), [[a, b] for a, b in sorted(gaps.items())]
 
 
-def run(args, ctx) -> Result:
+def run(args: argparse.Namespace, ctx: Context) -> Result:
     from ..errors import TopomarkError
     from ..navigate import Nav
 

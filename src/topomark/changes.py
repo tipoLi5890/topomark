@@ -18,6 +18,10 @@ import codecs
 import re
 from collections import defaultdict
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .lang.base import FileInfo, Symbol
 
 _HUNK = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
 
@@ -104,11 +108,11 @@ def parse_diff(text: str) -> dict[str, FileDiff]:
     return out
 
 
-def _key(s) -> tuple:
+def _key(s: Symbol) -> tuple:
     return (s.kind, " ".join(s.signature.split()), tuple(s.attrs), bool(s.exported))
 
 
-def _by_qualname(info) -> dict[str, list]:
+def _by_qualname(info: FileInfo | None) -> dict[str, list]:
     out: dict[str, list] = defaultdict(list)
     if info is not None:
         for s in info.symbols:
@@ -117,7 +121,7 @@ def _by_qualname(info) -> dict[str, list]:
     return out
 
 
-def _touched(info, lines: set[int], text: list[str] | None) -> set[str]:
+def _touched(info: FileInfo | None, lines: set[int], text: list[str] | None) -> set[str]:
     """Qualified names of the innermost declarations around ``lines`` ("" = outside any).
     Blank lines don't count: adding a method brings a blank line that belongs to no one."""
     from .navigate import enclosing_symbol
@@ -133,7 +137,7 @@ def _touched(info, lines: set[int], text: list[str] | None) -> set[str]:
     return out
 
 
-def classify(old_info, new_info, diff: FileDiff, old_text: list[str] | None = None,
+def classify(old_info: FileInfo | None, new_info: FileInfo | None, diff: FileDiff, old_text: list[str] | None = None,
              new_text: list[str] | None = None) -> tuple[list[dict], bool, bool]:
     """(changed symbols, header changed, lines outside any declaration changed) for one file.
     Symbols come in new-file order, removed ones after, each ``{"qualname", "kind", "change",

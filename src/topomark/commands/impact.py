@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+import argparse
+from typing import TYPE_CHECKING, Any
+
 from . import Result
 from ._common import add, rel
 
+if TYPE_CHECKING:
+    from ..context import Context
 
-def register(sub, common) -> None:
+
+def register(sub: Any, common: argparse.ArgumentParser) -> None:
     p = add(sub, common, "impact", "one-shot impact summary for a file or a symbol: callers, tests, docs",
             "For a file: the names it declares, fan-in (prod/test), the files that import it (Python,\n"
             "JS/TS), cross-area callers, owning area, review-stamp state, tests that mention it, docs\n"
@@ -28,7 +34,7 @@ def _list(title: str, items: list[str], top: int, total: int | None = None) -> l
     return out
 
 
-def run(args, ctx) -> Result:
+def run(args: argparse.Namespace, ctx: Context) -> Result:
     from ..navigate import Nav, impact_file, impact_symbol
 
     nav = Nav(ctx)

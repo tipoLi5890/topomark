@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import re
 
-from .base import DYNAMIC, norm
+from .base import DYNAMIC, FileInfo, norm
 from .brace import BraceLanguage, Decl, _Scope
 from .scan import Masked, Syntax
 
@@ -43,7 +43,7 @@ class JsTs(BraceLanguage):
     terminators = ";\n"
     functions_are_types = True
 
-    def analyze(self, path: str, text: str):  # type: ignore[override]
+    def analyze(self, path: str, text: str) -> FileInfo:
         self._cjs = _commonjs_exports(text)
         info = super().analyze(path, text)
         info.lang = "ts" if path.endswith((".ts", ".tsx", ".mts", ".cts")) else "js"
@@ -177,7 +177,7 @@ class JsTs(BraceLanguage):
         return None
 
 
-    def _close(self, scope: _Scope, i: int, m, text: str, surface: list[str]) -> None:
+    def _close(self, scope: _Scope, i: int, m: Masked, text: str, surface: list[str]) -> None:
         super()._close(scope, i, m, text, surface)
         sym = scope.sym
         if sym is not None and sym.kind == "exports" and sym.name == "default":

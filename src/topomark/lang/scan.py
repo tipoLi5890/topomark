@@ -105,6 +105,7 @@ def mask(text: str, syntax: Syntax) -> Masked:
     openers += list(syntax.extra_openers)
     openers = sorted(set(openers), key=len, reverse=True)
     code_rx = re.compile("|".join(re.escape(o) for o in openers)) if openers else None
+    e: int | None  # where the literal or comment at `s` ends (None: not one after all)
     i = 0
     while code_rx is not None and i < n:
         m = code_rx.search(text, i)

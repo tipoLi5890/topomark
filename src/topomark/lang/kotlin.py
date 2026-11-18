@@ -9,7 +9,7 @@ import re
 
 from ._decl import _IDENT, _TYPE_SCOPES, _enum_entries, _sig, strip_annotations
 from .brace import BraceLanguage, Decl, _Scope
-from .scan import Syntax
+from .scan import Masked, Syntax
 
 _KT_MODS = (r"(?:public|private|protected|internal|open|abstract|final|sealed|data|enum|annotation|inner|value|"
             r"inline|override|suspend|operator|infix|tailrec|external|lateinit|const|companion|expect|actual)")
@@ -27,6 +27,11 @@ class Kotlin(BraceLanguage):
                     quotes=('"', "'"), triple_quotes=('"""',), dq_interp="${", char_literals_only=True)
     terminators = ";\n"
 
+    def imports_of(self, masked: Masked) -> list[str]:
+        from ._imports import jvm_imports
+
+        return jvm_imports(masked.text, masked.original)
+
     def _exported(self, mods: str) -> bool:
         return not re.search(r"\b(private|internal)\b", mods)
 
@@ -34,7 +39,9 @@ class Kotlin(BraceLanguage):
         attrs, h = strip_annotations(header)
         if not h:
             return Decl("block")
-        word = re.match(r"\w*", h).group(0)
+        wm = re.match(r"\w*", h)
+        assert wm is not None  # `\w*` matches the empty string
+        word = wm.group(0)
         if word == "constructor" or re.match(rf"^(?:{_KT_MODS}\s+)*constructor\s*\(", h):
             return Decl("constructor", "constructor", self._exported(h.split("constructor")[0]), attrs,
                         signature=_sig(raw))

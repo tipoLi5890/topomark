@@ -21,7 +21,7 @@ import sys
 from typing import NoReturn
 
 from . import __version__
-from .commands import COMMAND_MODULES, Result
+from .commands import COMMAND_MODULES, Result, command_module
 from .contract import SCHEMA_VERSION
 from .errors import EXIT, TopomarkError
 
@@ -78,7 +78,33 @@ def _global_flags() -> argparse.ArgumentParser:
     return common
 
 
-def build_parser() -> argparse.ArgumentParser:
+_VALUE_FLAGS = ("-C", "--repo", "--config")
+_BARE_FLAGS = frozenset({"--json", "--debug", "--quiet", "--verbose", "--version"})
+
+
+def _command_in(argv: list[str]) -> str | None:
+    """The command word in ``argv`` when only spelled-out global flags precede it, else None.
+
+    None means "build the whole parser": help before the command, an abbreviated or unknown flag,
+    ``--``, or no command at all. A wrong guess here could only cost time, never change parsing,
+    because ``build_parser`` falls back to every command when the word is not one it registered."""
+    i = 0
+    while i < len(argv):
+        token = argv[i]
+        if not token.startswith("-"):
+            return token
+        if token in _VALUE_FLAGS:
+            i += 2
+        elif token in _BARE_FLAGS or token.startswith(("--repo=", "--config=")) or (
+                token.startswith("-C") and len(token) > 2) or (token[1:] and set(token[1:]) <= {"v", "q"}):
+            i += 1
+        else:
+            return None
+    return None
+
+
+def build_parser(only: str | None = None) -> argparse.ArgumentParser:
+    """The whole parser, or with ``only`` the parser for that one command (same parse, fewer imports)."""
     common = _global_flags()
     parser = _Parser(
         prog="topomark",
@@ -99,6 +125,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--version", action="store_true", help="print the version and exit")
     sub = parser.add_subparsers(dest="command", metavar="<command>")
+    module = command_module(only) if only else None
+    if module is not None:
+        module.register(sub, common)
+        if only in sub.choices:
+            return parser
+        return build_parser()  # the module registers another name: let argparse report all choices
     for module in COMMAND_MODULES():
         module.register(sub, common)
     return parser
@@ -119,7 +151,7 @@ def main(argv: list[str] | None = None) -> int:
     _configure_streams()
     argv = list(sys.argv[1:] if argv is None else argv)
     _JSON_REQUESTED = "--json" in argv
-    parser = build_parser()
+    parser = build_parser(_command_in(argv))
     args = parser.parse_args(argv)
     for key, value in _GLOBAL_DEFAULTS.items():
         if not hasattr(args, key):
@@ -151,7 +183,7 @@ def main(argv: list[str] | None = None) -> int:
         return e.exit
     except KeyboardInterrupt:
         return 130
-    except Exception as e:  # noqa: BLE001 - the CLI boundary turns bugs into exit 7
+    except Exception as e:  # the CLI boundary turns bugs into exit 7
         if args.debug:
             raise
         message = f"{type(e).__name__}: {e}"

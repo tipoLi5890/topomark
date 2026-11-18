@@ -48,10 +48,11 @@ declares. Approximate: a name that collides with something common inflates the c
 
 | prod / test | file | area | why it reaches everything |
 |---:|---|---|---|
+| 31/2 | `src/topomark/context.py` | core | `Context`, the second argument of every handler (most name it for type checking only) |
 | 26/1 | `src/topomark/commands/__init__.py` | commands | `Result`, returned by every handler |
 | 26/1 | `src/topomark/errors.py` | core | `TopomarkError` and the exit table, raised everywhere |
-| 19/3 | `src/topomark/repo.py` | core | git file list, glob matching and `read_text` for every command |
-| 9/4 | `src/topomark/lang/registry.py` | lang | the only way from a path to an adapter |
+| 23/3 | `src/topomark/repo.py` | core | git file list, glob matching and `read_text` for every command |
+| 10/4 | `src/topomark/lang/registry.py` | lang | the only way from a path to an adapter |
 | 11/1 | `src/topomark/navigate.py` | engine | `Nav` behind every navigation command |
 | 13/0 | `src/topomark/docs.py` | engine | areas, ownership and units behind every code-map command |
 | 10/0 | `src/topomark/workspace.py` | engine | the code-map state `check`, `stamp`, `stale`, `gen`, `sync` share |

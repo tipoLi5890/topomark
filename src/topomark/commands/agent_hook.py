@@ -26,8 +26,16 @@ blocks the tool call.
 
 from __future__ import annotations
 
+import argparse
+from typing import TYPE_CHECKING, Any
+
 from . import Result
 from ._common import add
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from ..context import Context
 
 EVENTS = {"session-start": "SessionStart", "pre-read": "PreToolUse", "post-edit": "PostToolUse"}
 MAX_LINES = 40          # session-start: lines of additionalContext
@@ -38,7 +46,7 @@ MAX_PAYLOAD = 1 << 20     # bytes of hook JSON read from stdin; a bigger payload
 STATE_DIR = "agent-hook"
 
 
-def register(sub, common) -> None:
+def register(sub: Any, common: argparse.ArgumentParser) -> None:
     p = add(sub, common, "agent-hook",
             "Claude Code plugin hooks (hook JSON on stdin): code-map pointer, read hints, syntax after an edit",
             "Run by the plugin's hooks/hooks.json, not by hand. Reads the hook payload on stdin and\n"
@@ -56,7 +64,7 @@ def register(sub, common) -> None:
     p.set_defaults(handler=run)
 
 
-def run(args, ctx) -> Result:
+def run(args: argparse.Namespace, ctx: Context) -> Result:
     args.quiet = True  # a hook says what it has to say in its answer, never on stderr (config warnings)
     try:
         handler = _HANDLERS.get(args.action)
@@ -70,7 +78,7 @@ def run(args, ctx) -> Result:
 
         out = {"hookSpecificOutput": {"hookEventName": EVENTS[args.action], "additionalContext": text}}
         return Result(out, json.dumps(out, ensure_ascii=False))
-    except Exception:  # noqa: BLE001 - a hook never fails: silence, exit 0
+    except Exception:  # a hook never fails: silence, exit 0
         if getattr(args, "debug", False):
             raise
         return Result()
@@ -97,7 +105,7 @@ def _payload() -> dict:
     return data
 
 
-def _root(args, ctx, payload: dict):
+def _root(args: argparse.Namespace, ctx: Context, payload: dict) -> Path:
     """The repo root, found from the payload's ``cwd`` unless ``-C`` was given; raises outside git."""
     cwd = payload.get("cwd")
     if getattr(args, "repo", None) is None and isinstance(cwd, str) and cwd:
@@ -111,7 +119,7 @@ def _file_arg(payload: dict) -> str:
     return fp if isinstance(fp, str) else ""
 
 
-def _repo_path(ctx, payload: dict, raw: str) -> str | None:
+def _repo_path(ctx: Context, payload: dict, raw: str) -> str | None:
     """``raw`` as a repo-relative POSIX path, or None when it is outside the repo."""
     import os
     from pathlib import Path
@@ -130,7 +138,7 @@ def _repo_path(ctx, payload: dict, raw: str) -> str | None:
     return None
 
 
-def _excludes(ctx) -> tuple[str, ...]:
+def _excludes(ctx: Context) -> tuple[str, ...]:
     from ..errors import TopomarkError
     from ..repo import DEFAULT_EXCLUDES
 
@@ -141,7 +149,7 @@ def _excludes(ctx) -> tuple[str, ...]:
 
 
 # ---------------------------------------------------------------- once per session
-def _session_dir(root, payload: dict):
+def _session_dir(root: Path, payload: dict) -> Path | None:
     import hashlib
 
     from ..index import cache_dir
@@ -152,7 +160,7 @@ def _session_dir(root, payload: dict):
     return cache_dir(root) / STATE_DIR / hashlib.sha256(sid.encode("utf-8")).hexdigest()[:16]
 
 
-def _first_time(state, key: str) -> bool:
+def _first_time(state: Path | None, key: str) -> bool:
     """True exactly once per session and key; False when the marker cannot be written either,
     so an unwritable cache means no hints rather than the same hint on every read."""
     import hashlib
@@ -170,7 +178,7 @@ def _first_time(state, key: str) -> bool:
     return True
 
 
-def _sweep(root, payload: dict) -> None:
+def _sweep(root: Path, payload: dict) -> None:
     """Drop marker folders of old sessions, and this session's after a clear or compact."""
     import shutil
     import time
@@ -196,7 +204,7 @@ def _clip(s: str, n: int) -> str:
     return s if len(s) <= n else s[: n - 1].rstrip() + "…"
 
 
-def _session_start(args, ctx, payload: dict) -> str:
+def _session_start(args: argparse.Namespace, ctx: Context, payload: dict) -> str:
     from ..docs import load_areas
     from ..errors import TopomarkError
 
@@ -224,8 +232,10 @@ def _session_start(args, ctx, payload: dict) -> str:
                   "change, `topomark diff <unit>`, update the row, then `topomark stamp <unit>`.")
     else:
         stamps = "No review stamps yet (no stamps.json): `topomark check --no-stamps` checks coverage only."
-    rows = [f"- {a.name}: {a.file}" + (f" ({_clip(a.title, 70)})" if a.title.lower() not in ("", a.name.lower())
-                                       else "") for a in areas]
+    # Area names and titles are repository text going straight into the agent's context: one line
+    # each, clipped, so a planted frontmatter value cannot carry a paragraph of instructions.
+    rows = [f"- {_clip(a.name, 40)}: {_clip(a.file, 120)}"
+            + (f" ({_clip(a.title, 70)})" if a.title.lower() not in ("", a.name.lower()) else "") for a in areas]
     keep = min(len(rows), MAX_LINES - 4)
     while True:
         shown = rows[:keep]
@@ -238,7 +248,7 @@ def _session_start(args, ctx, payload: dict) -> str:
 
 
 # ---------------------------------------------------------------- pre-read
-def _pre_read(args, ctx, payload: dict) -> str:
+def _pre_read(args: argparse.Namespace, ctx: Context, payload: dict) -> str:
     from ..errors import TopomarkError
     from ..lang import registry
     from ..repo import matches_any, safe_path
@@ -280,7 +290,7 @@ def _pre_read(args, ctx, payload: dict) -> str:
     return "\n".join(hints)
 
 
-def _area_hint(ctx, rel: str, state) -> str:
+def _area_hint(ctx: Context, rel: str, state: Path | None) -> str:
     from ..docs import load_areas, owner_of
     from ..errors import TopomarkError
 
@@ -295,12 +305,12 @@ def _area_hint(ctx, rel: str, state) -> str:
     area, _ = owner_of(rel, areas)
     if area is None or not _first_time(state, f"area:{area.name}"):
         return ""
-    return (f"topomark: {rel} is in area `{area.name}`; {area.file} has a row per file, the data flow and the "
-            "pitfalls (worth reading before editing here).")
+    return (f"topomark: {rel} is in area `{_clip(area.name, 40)}`; {_clip(area.file, 120)} has a row per file, "
+            "the data flow and the pitfalls (worth reading before editing here).")
 
 
 # ---------------------------------------------------------------- post-edit
-def _post_edit(args, ctx, payload: dict) -> str:
+def _post_edit(args: argparse.Namespace, ctx: Context, payload: dict) -> str:
     from .. import syntax as X
     from ..lang import registry
     from ..repo import is_secret

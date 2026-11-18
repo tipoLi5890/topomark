@@ -140,6 +140,30 @@ class DocSystemTest(unittest.TestCase):
         self.assertEqual(err["code"], "CONFIG")
         self.assertIn("docs/codemap/stamps.json is not valid JSON", err["message"])
 
+    def test_blob_id_that_is_not_an_object_id_is_refused_before_git_sees_it(self) -> None:
+        """stamps.json comes with the repository; ``git diff <old> <new>`` would take
+        ``--output=<file>`` as an option and write that file."""
+        import tempfile
+
+        r = self.repo
+        for step in ("gen", "sync"):
+            self.assertEqual(r.cli(step)[0], 0)
+        self.assertEqual(r.cli("stamp", "--baseline")[0], 0)
+        unit = "src/core/router.py"
+        r.write({unit: CODE[unit] + "\n        def remove(self, path):\n            pass\n"})
+        stamps = json.loads(r.read("docs/codemap/stamps.json"))
+        with tempfile.TemporaryDirectory() as outside:
+            pwned = os.path.join(outside, "pwned")
+            for bad in (f"--output={pwned}", "HEAD", "abc", 7):
+                stamps["units"][unit]["blobs"][unit] = bad
+                r.write({"docs/codemap/stamps.json": json.dumps(stamps)})
+                for argv in (["diff", unit], ["check"], ["stale"]):
+                    with self.subTest(blob=bad, argv=argv):
+                        err = r.json(*argv, expect=3)["error"]
+                        self.assertEqual(err["code"], "CONFIG")
+                        self.assertIn("not a git object id", err["message"])
+            self.assertEqual(os.listdir(outside), [])
+
     def test_a_stamp_from_another_reading_of_the_same_code_is_not_a_change(self) -> None:
         """After an adapter upgrade the stamped hash differs although nobody touched the file: the
         reviewed blob, read with today's adapter, decides."""
@@ -153,6 +177,10 @@ class DocSystemTest(unittest.TestCase):
         r.write({"docs/codemap/stamps.json": json.dumps(stamps)})
         self.assertTrue(r.json("check")["ok"])  # same content as reviewed
         self.assertIn("interface unchanged since review", r.cli("diff", unit)[1])
+        # every command that reports the stamp gives check's answer, not the bare hash comparison
+        self.assertEqual(r.json("owner", unit)["stamp"], "current")
+        self.assertEqual(r.json("impact", unit)["stamp"], "current")
+        self.assertEqual(r.json("brief", unit)["area"]["stamp"], "current")
         r.write({unit: CODE[unit].replace("self.routes[path] = handler", "self.routes[path] = handler  # noop")})
         self.assertTrue(r.json("check")["ok"])  # body only: the old blob reads the same today
         self.assertEqual(r.json("stale")["body_changed"], {"core": [unit]})

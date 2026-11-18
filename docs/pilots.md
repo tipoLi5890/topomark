@@ -5,29 +5,44 @@ written: later sections supersede earlier ones.
 
 ## Current numbers
 
-### Navigation eval on the pinned snapshot (2026-10-09)
+### Navigation eval on the pinned snapshot (2026-11-17)
 
-`python3 tools/eval_nav.py`: 30 tasks, 27 about this repository as it was at `v0.2.0` (`snapshot` in
-`tools/eval/tasks.toml`, exported without `tools/eval/`), 3 on a generated 150-file repo. One task is a control
-(`expect = "miss"`), so 29 are scored. CI fails under an MRR of 0.70 (`--fail-under`).
+`python3 tools/eval_nav.py`: 42 tasks, 28 about this repository as it was at `v0.2.0` (`snapshot` in
+`tools/eval/tasks.toml`, exported without `tools/eval/`), 14 on a generated 150-file repo. One task is a control
+(`expect = "miss"`), so 41 are scored. CI fails under an MRR of 0.75 (`--fail-under`).
 
 | kind | scored | hit@1 | hit@5 | MRR | mean output tokens |
 |---|---:|---|---|---:|---:|
-| find | 8 | 3 | 8 | 0.635 | 148 |
-| search | 6 | 3 | 5 | 0.653 | 514 |
-| locate | 6 | 6 | 6 | 1.000 | 204 |
-| brief | 4 | 3 | 3 | 0.786 | 468 |
-| tests-for | 5 | 3 | 5 | 0.740 | 140 |
-| all | 29 | 18 | 27 | 0.753 | 273 |
+| find | 9 | 5 | 9 | 0.722 | 146 |
+| search | 7 | 4 | 6 | 0.702 | 516 |
+| locate | 8 | 8 | 8 | 1.000 | 166 |
+| brief | 4 | 3 | 3 | 0.786 | 467 |
+| tests-for | 5 | 3 | 5 | 0.740 | 143 |
+| refs | 3 | 3 | 3 | 1.000 | 137 |
+| impact | 3 | 3 | 3 | 1.000 | 71 |
+| map | 2 | 1 | 2 | 0.750 | 1142 |
+| all | 41 | 30 | 39 | 0.823 | 283 |
 
-`search` weighs a test method at 0.4 of its score (it was 0.5, equal to the share a test lends to the code
-it uses, so a test whose name held every query word outranked that code): on the snapshot the secret-file
-refusal went from rank 2 to 1 and the `check` problem list from 7 to 6, nothing else moved (search MRR 0.565
-to 0.653, all tasks 0.735 to 0.753).
+Twelve tasks were added on 2026-11-17: the kinds `refs`, `impact` and `map`, which the eval did not score, and
+Go, C# and TypeScript questions on the synthetic repo (the 30 older tasks were Python and one TypeScript chain).
+They were written from what the code is before any was run. With them and no change to the commands the MRR was
+0.789; one gold was then widened (`refs owner_of` named one of six equally right callers and now accepts any),
+which is in that number.
+
+Two ranking changes followed, each from a miss the new and old tasks showed:
+
+- `find` orders partial matches of the same standing by how much of the name the query covers, where it used
+  the path. `find stamp` went from rank 2 to 1 (`Stamps` before `STAMPS_VERSION`) and `find runner` from 4 to 3;
+  `find frontmatter` went from 2 to 3 (`FrontmatterError` in `tools/` now precedes `parse_frontmatter`).
+- `map --focus` on a file that uses nothing listed that file alone, so the file that calls it was missing
+  (`synth-map-focus-leaf`: no rank, now rank 1). The users of a focus file now share half its weight.
+
+Together: 0.789 to 0.823. The 29 tasks scored on 2026-10-09 read 0.753 then and 0.768 now.
 
 Known misses: `search` puts the `check` problem list sixth and the runner placeholders fourth; `brief` on
-`config.py` lists the gold test seventh, after the five callers; `find runner` is fourth of four functions with
-"runner" in their name.
+`config.py` lists the gold test seventh, after the five callers (`related` lists callers before tests, so a test
+cannot lead while there are callers); `find runner` is third of four functions with "runner" in their name;
+`map` on the synthetic repo puts a hub second, not first.
 
 Why the eval moved to a snapshot. Until 0.2.0 the 27 tasks ran on the checkout, so the text being searched
 changed with every commit while the golds stayed. By 2026-10-09 the same tasks read MRR 0.687 (locate 5/6,
@@ -42,7 +57,7 @@ What these numbers do not show: the tasks were written by topomark's author abou
 per kind, so one task is 12 to 25 points of hit@1 in its kind. They catch a ranking regression; they are not
 evidence of how the commands do on other repositories.
 
-### Speed
+### Speed (2026-10-09)
 
 `python3 tools/bench_nav.py --runs 3` on the 3,000-file synthetic repo (2026-10-09, an idle Apple-silicon laptop, warm
 cache, a fresh process per run): CPU time of 0.2.0 and of the code after the first run of changes following it
@@ -67,13 +82,15 @@ cache, a fresh process per run): CPU time of 0.2.0 and of the code after the fir
 | `map`, cold cache | 2.11 s | 2.17 s |
 
 Nothing got slower. These are several times lower than the 2026-10-06 tables under "History", which were
-measured at a load average of 20 to 40: compare within a table, never across them.
+measured at a load average of 20 to 40: compare within a table, never across them. The work after 0.3.0
+(CHANGELOG.md, `[Unreleased]`) was timed against 0.3.0 on the same repo on 2026-11-17: a cold `map` 2.7 s in
+one process and 1.0 s with worker processes, the warm commands within noise of 0.3.0.
 
 One thing did get much faster, on real code rather than the synthetic repo: the C-family adapter took seconds
 per file (and sometimes never returned) on declarations with long identifiers, an exponential pattern that
 the synthetic C-free repo could not show. 14,000 installed JS, TS and C-family files that took minutes parse
 in 15 seconds. The test suite takes about 18 s on the same laptop (25 s before the harness stopped starting
-five git processes per throwaway repo), with 218 tests instead of 194.
+five git processes per throwaway repo), with 218 tests instead of 194 (both on 2026-10-09).
 
 # History
 
@@ -140,7 +157,7 @@ folder of `mobile/`.
 `tools/synth_repo.py` generates the repo (3,000 files, ~500k lines: Python 45 %, TS/TSX 40 %, JS, Go and C# 5 %
 each, Markdown docs, a test file for one module in four); `tools/bench_nav.py --runs 3` times each command as a
 fresh `python3 -m topomark` process on a warm cache. The laptop was heavily loaded, so wall time was several times
-the CPU time; CPU time (user + system) is the stable number. "Before" is `21e15fb` (0.1.0 plus import edges),
+the CPU time; CPU time (user + system) is the stable number. "Before" is 0.1.0 plus import edges,
 "after" is the cache and ranking work below; the two ran back to back.
 
 | command | CPU before | CPU after | wall before | wall after |
@@ -200,7 +217,7 @@ moves by a factor of two between runs; the CPU column is the number to compare.
 
 No warm command uses more than 1.2 s of CPU. On wall time, everything but `brief CoreHub` stayed under 5 s in
 this run; `brief` on a name does `impact`'s reference scan plus test selection, and at a load average near 30
-its median was 5.7 s. Two back-to-back rounds of the perf commit's bench (`db1c915`) against the final code gave
+its median was 5.7 s. Two back-to-back rounds of the bench as of the perf change against the final code gave
 the same CPU within run-to-run noise (`map` 0.94/0.86 s before, 0.77/1.04 s after; `impact` on a file
 0.59/0.66 s before, 0.58/0.74 s after), so the commands added since did not slow the old ones down.
 
@@ -215,8 +232,8 @@ file in a new area 0.20 s, a repeated `pre-read` that stays silent 0.21 s, a ran
 
 `tools/eval_nav.py`: 30 tasks (27 on this repo, 3 on a generated 150-file repo), written before `search`,
 `locate` and `brief` existed; since then only one gold changed, because the code it named moved
-(`commands/impact.py#_symbol` → `navigate.py#impact_symbol`). Baseline is the commit that added the eval
-(`af6845d`), when the 16 tasks for the missing commands and one for a missing flag were skipped; "final" is the
+(`commands/impact.py#_symbol` → `navigate.py#impact_symbol`). Baseline is the commit that added the eval,
+when the 16 tasks for the missing commands and one for a missing flag were skipped; "final" is the
 code after the hooks, before this repo got its own code map.
 
 | kind | tasks run | hit@1 | hit@5 | MRR | mean output tokens |

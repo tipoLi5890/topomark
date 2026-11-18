@@ -86,7 +86,7 @@ id = "search-secret-refusal"
 kind = "search"
 query = "refuse to read secret files"
 gold = ["src/topomark/repo.py#safe_path", "src/topomark/repo.py#is_secret"]
-note = "the refusal moved from read_text into safe_path (82e13f5)"
+note = "the refusal moved from read_text into safe_path"
 
 [[task]]
 id = "search-runner-placeholders"
@@ -234,3 +234,114 @@ repo = "synth"
 query = "ts/chain/leaf.ts"
 gold = "tests/ts/chain.test.ts"
 note = "leaf <- mid <- top (imports ./mid.js, a .ts file); the test imports the index.ts barrel and names ChainTop"
+
+# ---------------------------------------------------------------- added 2026-11-17
+# Kinds the eval did not score (refs, impact, map) and languages other than Python and TypeScript,
+# written from what the code is (who imports whom in the fixed chain files, what a generated file
+# declares) before any of them was run. The synthetic repo is deterministic, so generated names
+# (`PrinterManager`, `LedgerValidator`) are as fixed as the chain files.
+
+[[task]]
+id = "impact-load-areas"
+kind = "impact"
+query = "load_areas"
+gold = ["src/topomark/workspace.py", "src/topomark/commands/agent_hook.py"]
+note = "who reads the area files: the two callers outside docs.py"
+
+[[task]]
+id = "synth-impact-py-leaf"
+kind = "impact"
+repo = "synth"
+query = "chain_leaf_value"
+gold = "py/chain/mid.py"
+note = "its one caller"
+
+[[task]]
+id = "synth-impact-ts-leaf-file"
+kind = "impact"
+repo = "synth"
+query = "ts/chain/leaf.ts"
+gold = "ts/chain/mid.ts"
+note = "a file target: its one importer"
+
+[[task]]
+id = "refs-owner-of"
+kind = "refs"
+query = "owner_of"
+args = ["--no-tests"]
+gold = ["src/topomark/graph.py", "src/topomark/navigate.py", "src/topomark/workspace.py",
+        "src/topomark/commands/init.py", "src/topomark/commands/owner.py", "src/topomark/commands/agent_hook.py"]
+note = "any of the six files that call it: the first file listed must be a caller, not the definition"
+
+[[task]]
+id = "synth-refs-py-mid"
+kind = "refs"
+repo = "synth"
+query = "chain_mid_value"
+gold = "py/chain/top.py"
+
+[[task]]
+id = "synth-refs-ts-mid"
+kind = "refs"
+repo = "synth"
+query = "chainMidValue"
+gold = "ts/chain/top.ts"
+
+[[task]]
+id = "synth-map-hubs"
+kind = "map"
+repo = "synth"
+args = ["--tokens", "1500"]
+gold = ["py/core/hub.py", "ts/core/hub.ts"]
+note = "a ranked map of a repo with two hubs should lead with one of them"
+
+[[task]]
+id = "synth-map-focus-leaf"
+kind = "map"
+repo = "synth"
+args = ["--focus", "py/chain/leaf.py", "--tokens", "800"]
+gold = "py/chain/mid.py"
+note = "focus on a file brings what uses it to the top (the focus file itself is not an answer)"
+
+[[task]]
+id = "synth-find-csharp-class"
+kind = "find"
+repo = "synth"
+query = "LedgerValidator"
+gold = "cs/Module00/LedgerValidator.cs#LedgerValidator"
+note = "C#; its methods carry the class name too (BuildLedgerValidatorUser)"
+
+[[task]]
+id = "synth-search-ts-hub"
+kind = "search"
+repo = "synth"
+query = "hub store registry"
+gold = "ts/core/hub.ts#CoreHubStore"
+
+[[task]]
+id = "synth-locate-trace-go"
+kind = "locate"
+repo = "synth"
+gold = "go/svc00/printer_manager.go#PrinterManager.ResolveCoupon"
+trace = '''
+panic: runtime error: index out of range [3] with length 3
+
+goroutine 1 [running]:
+example.com/app/go/svc00.(*PrinterManager).ResolveCoupon(0xc000010000, {0xc000012000, 0x3, 0x3})
+	/home/ci/work/app/go/svc00/printer_manager.go:{line:go/svc00/printer_manager.go#PrinterManager.ResolveCoupon} +0x1d
+main.main()
+	/home/ci/work/app/cmd/main.go:12 +0x25
+'''
+note = "Go; the innermost frame is a method with a pointer receiver"
+
+[[task]]
+id = "synth-locate-trace-csharp"
+kind = "locate"
+repo = "synth"
+gold = "cs/Module00/LedgerValidator.cs#LedgerValidator.ComputeQueue"
+trace = '''
+System.InvalidOperationException: Sequence contains no elements
+   at Game.Module00.LedgerValidator.ComputeQueue(IList`1 values) in C:\\build\\app\\cs\\Module00\\LedgerValidator.cs:line {line:cs/Module00/LedgerValidator.cs#LedgerValidator.ComputeQueue}
+   at Game.Program.Main(String[] args) in C:\\build\\app\\cs\\Program.cs:line 9
+'''
+note = "C#, Windows build paths"

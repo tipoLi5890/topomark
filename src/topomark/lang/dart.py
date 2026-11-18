@@ -10,7 +10,7 @@ import re
 from ._decl import _TYPE_SCOPES, _enum_entries, _sig, first_paren, split_top, strip_annotations
 from .base import norm
 from .brace import BraceLanguage, Decl, _Scope
-from .scan import Syntax
+from .scan import Masked, Syntax
 
 _DART_TYPE = re.compile(r"^((?:(?:abstract|base|final|interface|sealed|mixin|macro|augment)\s+)*)"
                         r"(class|mixin|enum|extension\s+type|extension)\b\s*([A-Za-z_$][\w$]*)?")
@@ -25,6 +25,11 @@ class Dart(BraceLanguage):
     name = "dart"
     syntax = Syntax(line_comments=("//",), block_comments=(("/*", "*/"),), nested_block_comments=True,
                     quotes=('"', "'"), triple_quotes=('"""', "'''"), dq_interp="${", dart_raw=True)
+
+    def imports_of(self, masked: Masked) -> list[str]:
+        from ._imports import dart_imports
+
+        return dart_imports(masked.text, masked.original)
 
     def classify_block(self, header: str, raw: str, parent: _Scope, enclosing_type: str) -> Decl | None:
         attrs, h = strip_annotations(header)
@@ -73,7 +78,9 @@ class Dart(BraceLanguage):
         if p < 0:
             return None
         before = head[:p]
-        if re.search(r"(?<![=!<>])=(?![=>])", before) or re.match(r"\w*", before).group(0) in _DART_CONTROL:
+        wm = re.match(r"\w*", before)
+        assert wm is not None  # `\w*` matches the empty string
+        if re.search(r"(?<![=!<>])=(?![=>])", before) or wm.group(0) in _DART_CONTROL:
             return None
         op = re.search(r"\boperator\s*(\S+)\s*$", before)
         if op:

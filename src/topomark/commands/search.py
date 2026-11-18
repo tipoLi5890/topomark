@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
+import argparse
+from typing import TYPE_CHECKING, Any
+
 from . import Result
 from ._common import add
 
+if TYPE_CHECKING:
+    from ..context import Context
+    from ..search import Hit
 
-def register(sub, common) -> None:
+
+def register(sub: Any, common: argparse.ArgumentParser) -> None:
     p = add(sub, common, "search", "find code by keywords: BM25 over symbol names, signatures, docs and paths",
             "Ranks symbols by how well their name (split at case changes and underscores), container,\n"
             "signature, doc summary and path match the keywords, plus their file's header and code-map\n"
@@ -23,7 +30,7 @@ def register(sub, common) -> None:
     p.set_defaults(handler=run)
 
 
-def _line(h, width: int) -> str:
+def _line(h: Hit, width: int) -> str:
     from ..navigate import clip
 
     loc = f"{h.path}:{h.start}-{h.end}" if h.qualname else h.path
@@ -37,7 +44,7 @@ def _line(h, width: int) -> str:
     return text
 
 
-def run(args, ctx) -> Result:
+def run(args: argparse.Namespace, ctx: Context) -> Result:
     from .. import search as S
     from ..errors import TopomarkError
     from ..navigate import Nav, estimate_tokens

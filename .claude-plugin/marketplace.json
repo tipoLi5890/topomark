@@ -4,13 +4,13 @@
     "name": "Li, ching yu",
     "email": "tipo5890Li@gmail.com"
   },
-  "description": "A zero-dependency code map for AI coding agents: progressive-disclosure docs, per-file review stamps that catch stale summaries, and fast symbol/impact/test navigation for any repo.",
+  "description": "A zero-dependency code map for AI coding agents: progressive-disclosure docs, per-file review stamps that catch stale summaries, and fast symbol/impact/test navigation for git repositories.",
   "plugins": [
     {
       "name": "topomark",
       "source": "./",
       "version": "0.3.0",
-      "description": "A zero-dependency code map for AI coding agents: progressive-disclosure docs, per-file review stamps that catch stale summaries, and fast symbol/impact/test navigation for any repo."
+      "description": "A zero-dependency code map for AI coding agents: progressive-disclosure docs, per-file review stamps that catch stale summaries, and fast symbol/impact/test navigation for git repositories."
     }
   ]
 }

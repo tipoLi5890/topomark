@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Time topomark's navigation commands on a synthetic repo (``tools/synth_repo.py``).
+"""Time topomark's navigation and code-map commands on a synthetic repo (``tools/synth_repo.py``).
 
     python3 tools/bench_nav.py                      # generate 3,000 files in a temp dir
     python3 tools/bench_nav.py --repo DIR --runs 5  # reuse a repo synth_repo.py made
@@ -25,6 +25,11 @@ That last case runs in a scratch one-file repo (the monolith committed, then
 broken in the work tree), so nothing is written into ``--repo``. A case that fails
 its check is marked FAIL, the reason (and the ``--debug`` traceback, if any) goes
 to stderr, and the bench exits 1.
+
+The code-map cases (``check``, ``stale``, ``gen``, ``changes``) need a code map and a change to
+find, so they run in a scratch copy of the repo: ``init``, ``draft --write`` per area, ``gen``,
+``sync`` and ``stamp --baseline`` there, a commit, then one new method on ``CoreHub`` in the work
+tree. ``check`` and ``stale`` must report that file's unit and nothing else, or the case is marked FAIL.
 
 The cases name files that exist in every synthetic repo, so ``--repo`` must point
 at one made by ``synth_repo.py``. Stdlib only; never touches the user's cache.
@@ -60,7 +65,17 @@ CASES: list[tuple[str, list[str]]] = [
     ("search", ["search", "invoice", "payment", "service"]),
     ("brief-file", ["brief", "py/core/hub.py"]),
     ("brief-symbol", ["brief", "CoreHub"]),
+    ("locate", ["locate", "Process-wide registry of named counters"]),
 ]
+# in a scratch copy with a code map and one changed interface (see _codemap_repo)
+HUB = "py/core/hub.py"
+CODEMAP_CASES: list[tuple[str, list[str]]] = [
+    ("check", ["check"]),
+    ("stale", ["stale"]),
+    ("gen", ["gen"]),
+    ("changes", ["changes"]),
+]
+HUB_EDIT = "\n    def reset(self) -> None:\n        self.counters.clear()\n"  # appended: a new public method
 
 BIG = "py/big/monolith.py"
 # (case, agent-hook action, repo file in the payload's tool_input or "", what the hook must print:
@@ -195,6 +210,66 @@ def bench_hooks(repo: Path, env: dict[str, str], runs: int, scratch: Path) -> li
     return rows
 
 
+def _codemap_repo(repo: Path, where: Path, env: dict[str, str]) -> Path:
+    """A copy of ``repo`` at ``where`` with a baselined code map, committed, and ``HUB`` given one
+    more method in the work tree: what ``check``, ``stale`` and ``changes`` are for. Nothing is
+    written into ``repo``."""
+    import shutil
+
+    shutil.copytree(repo, where, symlinks=True)
+    areas = [a["name"] for a in json.loads(_run(["init", "--json"], where, env)[2])["areas"]]
+    for area in areas:
+        _run(["draft", area, "--write"], where, env)
+    for step in (["gen"], ["sync"], ["stamp", "--baseline"]):
+        _run(step, where, env)
+    _synth_repo().commit_all(where, "bench: code map")
+    with open(where / HUB, "a", encoding="utf-8", newline="\n") as fh:
+        fh.write(HUB_EDIT)
+    return where
+
+
+def _holds_hub(unit: object) -> bool:
+    """Is ``unit`` the hub file, or (a large area has directory units) a directory it is in?"""
+    return isinstance(unit, str) and (unit == HUB or (unit.endswith("/") and HUB.startswith(unit)))
+
+
+def codemap_problem(name: str, stdout: str) -> str:
+    """Why a code-map case did not see the one changed interface, "" when it did."""
+    try:
+        data = json.loads(stdout)
+    except ValueError:
+        return f"not JSON: {stdout[:200]!r}"
+    if name == "check":
+        got = [(p["code"], p.get("subject")) for p in data.get("problems", [])]
+        ok = len(got) == 1 and got[0][0] == "STAMP_CHANGED" and _holds_hub(got[0][1])
+        return "" if ok else f"expected one STAMP_CHANGED for {HUB}, got {got[:5]}"
+    if name == "stale":
+        got = [p.get("subject") for p in data.get("needs_review", [])]
+        return "" if len(got) == 1 and _holds_hub(got[0]) else f"expected {HUB} to need review, got {got[:5]}"
+    if name == "changes":
+        got = [f["path"] for f in data.get("files", [])]
+        return "" if got == [HUB] else f"expected {HUB} as the one changed file, got {got[:5]}"
+    return ""
+
+
+def bench_codemap(repo: Path, env: dict[str, str], runs: int, scratch: Path) -> list[dict]:
+    """Time and check each code-map case in a scratch copy made under ``scratch``."""
+    where = _codemap_repo(repo, scratch, env)
+    _run(["check"], where, env)  # fills the cache for the copy: the cases are timed warm, like the others
+    rows = []
+    for name, argv in CODEMAP_CASES:
+        got: list[tuple[float, float]] = []
+        problem = ""
+        for _ in range(max(1, runs)):
+            wall, cpu, out = _run([*argv, "--json"], where, env)
+            got.append((wall, cpu))
+            problem = problem or codemap_problem(name, out)
+        row = _timing(name, argv, got)
+        row["check"] = problem or "ok"
+        rows.append(row)
+    return rows
+
+
 def _profile(name: str, argv: list[str], repo: Path, env: dict[str, str], out: Path) -> None:
     prof = out / f"{name}.prof"
     subprocess.run([sys.executable, "-m", "cProfile", "-o", str(prof), "-m", "topomark", "-C", str(repo), *argv],
@@ -216,6 +291,7 @@ def bench(repo: Path, src: Path, runs: int, profile: Path | None) -> dict:
         rows = []
         for name, argv in CASES:
             rows.append(_timing(name, argv, [_run(argv, repo, env)[:2] for _ in range(max(1, runs))]))
+        rows += bench_codemap(repo, env, runs, Path(tmp) / "codemap")
         rows += bench_hooks(repo, env, runs, Path(tmp) / "broken")
         if profile is not None:
             profile.mkdir(parents=True, exist_ok=True)

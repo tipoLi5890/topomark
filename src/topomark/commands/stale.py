@@ -2,20 +2,24 @@
 
 from __future__ import annotations
 
+import argparse
 from collections import defaultdict
+from typing import TYPE_CHECKING, Any
 
 from . import Result
 from ._common import add, format_problems
 
+if TYPE_CHECKING:
+    from ..context import Context
 
-def register(sub, common) -> None:
+
+def register(sub: Any, common: argparse.ArgumentParser) -> None:
     p = add(sub, common, "stale", "list rows to review: interface changed (exit 1) and body-only changes (advisory)")
     p.add_argument("--area", help="only this area")
     p.set_defaults(handler=run)
 
 
-def run(args, ctx) -> Result:
-    from ..stamps import blob_ids
+def run(args: argparse.Namespace, ctx: Context) -> Result:
     from ..workspace import Workspace
 
     ws = Workspace(ctx)
@@ -25,7 +29,7 @@ def run(args, ctx) -> Result:
     candidates = [u for u, d in ws.units.items() if (not args.area or d["area"] == args.area)
                   and u in ws.stamps.units and u not in flagged]
     files = sorted({f for u in candidates for f in ws.units[u]["files"]})
-    blobs = blob_ids(ctx.root, files)
+    blobs = ws.current_blobs(files)  # compared, not stored: `stale` writes nothing
     for u in sorted(candidates):
         old = ws.stamps.units[u].get("blobs", {})
         if any(old.get(f) != blobs.get(f) for f in ws.units[u]["files"]):

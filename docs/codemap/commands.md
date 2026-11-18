@@ -31,26 +31,26 @@ navigation:  outline symbol find search locate refs impact brief tests-for synta
              (read-only on the repo; owner, listed with them in README, reads the code map)
 code map:    init draft gen sync stamp     write topomark.toml and docs_dir only (stamp: stamps.json)
              check stale diff owner        write no files
-             stale diff stamp              also add the units' blobs to .git/objects (git hash-object -w)
+             diff stamp                    also add the units' blobs to .git/objects (git hash-object -w)
 tooling:     hook (.git/hooks/pre-commit)  agent-hook (stdin hook JSON)  doctor  capabilities
 ```
 
 ## Files
 | file | summary | impact |
 |---|---|---|
-| `src/topomark/commands/__init__.py` | Command registry: `_NAMES` (order) and `COMMAND_MODULES()` with its written-out import list (so `impact` and `tests-for` see who loads a command), the `Result` handlers return | fan-in 26/1. A new command goes in `_NAMES` and in the import list; `tests/test_meta.py` checks the two agree with the modules on disk and that every name registers and is described |
+| `src/topomark/commands/__init__.py` | Command registry: `_NAMES` (order) and `COMMAND_MODULES()` with its written-out import list (so `impact` and `tests-for` see who loads a command), `command_module` (the one module behind a command as typed, so a call imports only that one), the `Result` handlers return | fan-in 26/1. A new command goes in `_NAMES` and in the import list; `tests/test_meta.py` checks the two agree with the modules on disk and that every name registers and is described |
 | `src/topomark/commands/_common.py` | `add` (subparser with global flags), `rel` (user path to repo path, a wrapper of `repo.user_path`), `format_problems` | fan-in 2/0. Keep imports light: it loads for `--help` and for every hook call |
 | `src/topomark/commands/agent_hook.py` | Claude Code hooks: session-start pointer, pre-read hints once per session, post-edit syntax (quiet about Python when the project requires a newer one); stdin read up to 1 MB | fan-in 0/0. Must exit 0 and stay silent on any error; `hooks/hooks.json` calls it; run `tests/test_agent_hook.py` |
 | `src/topomark/commands/brief.py` | Budgeted briefing before an edit: area row, outline, coupled callers, tests, run command | fan-in 0/0. Run `tests/test_brief.py` and the eval's brief tasks |
 | `src/topomark/commands/capabilities.py` | Every command, argument and flag from the live parser, plus the exit-code table | fan-in 0/0. Run `tests/test_meta.py` |
 | `src/topomark/commands/changes.py` | Diff mapped to symbols (`git diff` with fixed `a/` `b/` prefixes): interface vs body, references left, tests, rows to review | fan-in 0/0. Run `tests/test_changes.py` |
 | `src/topomark/commands/check.py` | Print `Workspace.problems()`; exit 1 on any | fan-in 0/0. Run `tests/test_docsystem.py`; the pre-commit gate and CI smoke job run it |
-| `src/topomark/commands/diff.py` | What changed in a unit since its stamp: surface diff first, then the content diff command | fan-in 0/0. Run `tests/test_docsystem.py` |
+| `src/topomark/commands/diff.py` | What changed in a unit since its stamp: surface diff first, then the content diff command; the reviewed versions come from one `git_objects` call | fan-in 0/0. Run `tests/test_docsystem.py` |
 | `src/topomark/commands/doctor.py` | Python, git, repo, config, tracked secrets (a warning, never a failure), docs_dir, file counts and the cache directory; exit 1 on a failing check | fan-in 0/0. Covered only by `tests/test_meta.py` (JSON shape) |
 | `src/topomark/commands/draft.py` | Rows an area file is missing, summary and fan-in prefilled; `--write` appends them | fan-in 0/0. Appends under `## Files` (or `File table`, `Units`); run `tests/test_init_draft.py` |
 | `src/topomark/commands/find.py` | Definitions by name; exact first, code before docs and data, production before tests | fan-in 0/0. Run `tests/test_navigation.py` and the eval's find tasks |
 | `src/topomark/commands/gen.py` | Rewrite `<docs_dir>/_generated/` (fan-in table, module graph) | fan-in 0/0. Run `tests/test_docsystem.py` |
-| `src/topomark/commands/hook.py` | Install, remove or report the opt-in git pre-commit gate: `check` runs whenever anything is staged, and only its exit 1 blocks the commit (exit 2 to 7 let it through) | fan-in 0/0. Keeps an existing hook as `pre-commit.local`; run `tests/test_docsystem.py` |
+| `src/topomark/commands/hook.py` | Install, remove or report the opt-in git pre-commit gate: `check` runs whenever anything is staged, and only its exit 1 blocks the commit (exit 2 to 7 let it through) | fan-in 0/0. Keeps an existing hook as `pre-commit.local`; refuses a `core.hooksPath` outside `.git`; run `tests/test_docsystem.py`, `tests/test_safety.py` |
 | `src/topomark/commands/impact.py` | Render `impact_file` / `impact_symbol`: callers, importers, cross-area users, tests, docs | fan-in 0/0. Run `tests/test_navigation.py` and `tests/test_output_economy.py` |
 | `src/topomark/commands/init.py` | Detect stack and manifests, propose areas and excludes, write config and skeleton; a `--docs-dir` outside the repository is a USAGE error | fan-in 0/0. `--dry-run` writes nothing (CI checks); run `tests/test_init_draft.py` |
 | `src/topomark/commands/locate.py` | Error message or stack trace (file or stdin) to code, via `topomark.locate` | fan-in 0/0. Run `tests/test_locate.py` |
@@ -80,7 +80,7 @@ tooling:     hook (.git/hooks/pre-commit)  agent-hook (stdin hook JSON)  doctor 
 ## Change checklist
 - New command: module with `register` and `run`, name in `_NAMES` and in `COMMAND_MODULES()`'s
   import list, a test with
-  `tests.harness.TempRepo`, a row in the README command table and `.github/README.zh-Hant.md`, the
+  `tests.harness.TempRepo`, a row in the README command table and the translated READMEs in `.github/`, the
   cheat sheet in `skills/topomark/SKILL.md`, `skills/topomark/reference/commands.md` for navigation
   commands, CHANGELOG `[Unreleased]`, and a row here.
 - New flag or JSON field: README table, `skills/topomark/reference/commands.md`, and

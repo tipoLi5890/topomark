@@ -26,8 +26,8 @@ bin/topomark --version
 No virtualenv is needed to run the tests. To run the linters locally the way CI does:
 
 ```bash
-python3 -m pip install ruff mypy
-ruff check src tests tools
+python3 -m pip install --require-hashes -r tools/requirements-ci.txt  # the versions CI uses
+ruff check src tests tools --extend-exclude tests/fixtures
 mypy
 ```
 

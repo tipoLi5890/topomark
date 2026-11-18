@@ -99,6 +99,7 @@ class Graph:
         self.usable = set(t["usable"])
         self.ident_files: dict[str, set[str]] = defaultdict(set, {n: set(fs) for n, fs in t["ident_files"].items()})
         self._fanin: dict[str, FanIn] = {}
+        self._area_of: dict[str, str] = {}
 
     def names_of(self, path: str) -> set[str]:
         info = self.infos.get(path)
@@ -121,19 +122,12 @@ class Graph:
         return fi
 
     def area_of(self, path: str) -> str:
-        a, _ = owner_of(path, self.areas)
-        return a.name if a else ""
+        name = self._area_of.get(path)
+        if name is None:  # asked once per caller of every file: `check` put a fifth of its time here
+            a, _ = owner_of(path, self.areas)
+            name = self._area_of[path] = a.name if a else ""
+        return name
 
     def cross_areas(self, path: str) -> list[str]:
         mine = self.area_of(path)
         return sorted({self.area_of(r) or "?" for r in self.fanin(path).prod} - {mine})
-
-    def edges(self) -> dict[str, dict[str, float]]:
-        """referrer → {declaring file: weight}; weight = how many of its names are used."""
-        out: dict[str, dict[str, float]] = defaultdict(dict)
-        for path in self.infos:
-            for n in self.names_of(path):
-                for r in self.ident_files.get(n, ()):
-                    if r != path and r not in self.declared[n]:
-                        out[r][path] = out[r].get(path, 0.0) + 1.0
-        return out

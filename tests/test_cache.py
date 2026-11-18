@@ -59,6 +59,46 @@ class IndexTest(unittest.TestCase):
             rc, out, _ = repo.cli("outline", "src")
             self.assertEqual(out.count("warning: this outline may be incomplete"), 1)
 
+    def test_workers_fill_the_cache_like_one_process_does(self) -> None:
+        """A cold parse in worker processes leaves the answers a one-process parse gives, and a
+        machine where workers cannot start parses in the one process."""
+        from unittest import mock
+
+        from topomark import index as I
+
+        files = {f"src/m{k}.py": f'"""Module {k}."""\n\nclass Thing{k}:\n    def run(self, x):\n        return x + {k}\n'
+                 for k in range(24)}
+        files["src/keys/prod.json"] = "{}\n"  # refused: never handed to a worker, never in the answer
+
+        def answers(repo: TempRepo, cache: str) -> dict:
+            with mock.patch.dict(os.environ, {"TOPOMARK_CACHE": cache}):
+                infos = I.Index(_ctx(repo.root)).all()
+            return {p: (i.to_json(), i.surface, sorted(i.idents)) for p, i in infos.items()}
+
+        with TempRepo(files) as repo, tempfile.TemporaryDirectory(prefix="topomark-jobs-") as tmp:
+            with mock.patch.dict(os.environ, {"TOPOMARK_JOBS": "1"}):
+                serial = answers(repo, os.path.join(tmp, "serial"))
+            self.assertEqual(len(serial), 24)
+            with mock.patch.object(I, "PARALLEL_MIN", 8), mock.patch.dict(os.environ, {"TOPOMARK_JOBS": "2"}), \
+                    mock.patch.object(I.registry, "analyze", wraps=I.registry.analyze) as here:
+                self.assertEqual(answers(repo, os.path.join(tmp, "workers")), serial)
+                here.assert_not_called()  # parsed in the workers, not in this process
+            with mock.patch.object(I, "PARALLEL_MIN", 8), mock.patch.dict(os.environ, {"TOPOMARK_JOBS": "2"}), \
+                    mock.patch("concurrent.futures.ProcessPoolExecutor", side_effect=OSError("no semaphores")):
+                self.assertEqual(answers(repo, os.path.join(tmp, "sandbox")), serial)
+
+    def test_where_the_cache_lives(self) -> None:
+        from topomark.index import cache_base
+
+        home = os.path.join(os.path.expanduser("~"), ".cache", "topomark")
+        local = {"LOCALAPPDATA": os.path.join("C:", "Users", "u", "AppData", "Local")}
+        self.assertEqual(cache_base({}, False), home)
+        self.assertEqual(cache_base(local, False), home)  # the variable alone does not make it Windows
+        self.assertEqual(cache_base(local, True), os.path.join(local["LOCALAPPDATA"], "topomark", "Cache"))
+        self.assertEqual(cache_base({}, True), home)
+        self.assertEqual(cache_base({**local, "XDG_CACHE_HOME": "x"}, True), os.path.join("x", "topomark"))
+        self.assertEqual(cache_base({**local, "XDG_CACHE_HOME": "x", "TOPOMARK_CACHE": "t"}, True), "t")
+
     def test_one_shard_per_file_and_old_caches_removed(self) -> None:
         from topomark.index import CachedInfo, Index, cache_dir
 

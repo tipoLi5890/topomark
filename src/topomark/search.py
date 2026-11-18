@@ -36,8 +36,14 @@ import math
 import re
 from array import array
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from functools import lru_cache
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .lang.base import FileInfo
+    from .navigate import Nav
 
 INDEX_VERSION = 3
 
@@ -151,7 +157,7 @@ class Hit:
 
 
 # ---------------------------------------------------------------- building
-def _group(nav, path: str, lang: str) -> str:
+def _group(nav: Nav, path: str, lang: str) -> str:
     if lang in DOC_LANGS:
         return "doc"
     if lang in DATA_LANGS:
@@ -159,7 +165,7 @@ def _group(nav, path: str, lang: str) -> str:
     return "test" if nav.is_test(path) else "code"
 
 
-def _tuples(info) -> list[tuple]:
+def _tuples(info: FileInfo) -> list[tuple]:
     """(kind, name, qualname, start, end, signature, exported, container, attrs, doc, line) per symbol."""
     raw = getattr(info, "symbol_tuples", None)
     if raw is not None:
@@ -168,7 +174,7 @@ def _tuples(info) -> list[tuple]:
              s.line) for s in info.symbols]
 
 
-def _area_rows(nav) -> dict[str, str]:
+def _area_rows(nav: Nav) -> dict[str, str]:
     """unit (file or ``dir/``) → the summary cell of its row in the code map."""
     rows: dict[str, str] = {}
     for a in nav.ws.areas:
@@ -179,11 +185,11 @@ def _area_rows(nav) -> dict[str, str]:
     return rows
 
 
-def inputs_key(nav) -> str:
+def inputs_key(nav: Nav) -> str:
     """What the index depends on besides the parsed files: config and the area files' text."""
     from .graph import tables_key
 
-    h = hashlib.sha256(f"{INDEX_VERSION}\n{tables_key(nav.cfg)}\n{nav.cfg.docs_dir}".encode("utf-8"))
+    h = hashlib.sha256(f"{INDEX_VERSION}\n{tables_key(nav.cfg)}\n{nav.cfg.docs_dir}".encode())
     for a in nav.ws.areas:
         h.update(a.file.encode("utf-8") + b"\0" + a.text.encode("utf-8"))
     return h.hexdigest()[:24]
@@ -193,7 +199,7 @@ _GROUP_CODE = {"code": "c", "test": "t", "doc": "d", "data": "a"}
 _CODE_GROUP = {v: k for k, v in _GROUP_CODE.items()}
 
 
-def build(nav) -> dict:
+def build(nav: Nav) -> dict:
     """The search index as marshal-able plain data. Posting lists, lengths and per-document
     numbers are packed ``array`` bytes and symbol details one string, so loading a 3,000-file
     index is a handful of big objects, not millions of small ones."""
@@ -305,7 +311,7 @@ def _postings(prefix: str, tfs: list[dict[str, float]]) -> dict:
     return {prefix + "post": post, prefix + "len": lengths.tobytes()}
 
 
-def load(nav) -> dict:
+def load(nav: Nav) -> dict:
     return nav.ws.derived("search", inputs_key(nav), lambda: build(nav))
 
 
@@ -337,7 +343,7 @@ def _bm25(post: dict, lengths: array, terms: list[str]) -> tuple[dict[int, float
         half = len(blob) // 2
         ids, fs = _ints(blob[:half]), _floats(blob[half:])
         idf = math.log(1.0 + (n - len(ids) + 0.5) / (len(ids) + 0.5))
-        for d, f in zip(ids, fs):
+        for d, f in zip(ids, fs, strict=False):
             scores[d] += idf * f * (K1 + 1) / (f + norm[d])
             matched[d].append(t)
     return scores, matched
@@ -359,7 +365,7 @@ class Results:
     hits: list[Hit]     # the best ``limit``, best first
 
 
-def search(index: dict, text: str, limit: int, keep=None) -> Results:
+def search(index: dict, text: str, limit: int, keep: Callable[[str], bool] | None = None) -> Results:
     """The best ``limit`` hits for ``text``; ``keep(path)`` filters files (``--area``).
     Deterministic: equal scores sort by path, a file before its symbols, then source order."""
     terms = query_terms(text)

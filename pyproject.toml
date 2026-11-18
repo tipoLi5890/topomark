@@ -8,7 +8,7 @@ build-backend = "setuptools.build_meta"
 # keep the three in lockstep.
 name = "topomark"
 version = "0.3.0"
-description = "A zero-dependency code map for AI coding agents: progressive-disclosure docs, per-file review stamps that catch stale summaries, and fast symbol/impact/test navigation for any repo."
+description = "A zero-dependency code map for AI coding agents: progressive-disclosure docs, per-file review stamps that catch stale summaries, and fast symbol/impact/test navigation for git repositories."
 requires-python = ">=3.11"
 readme = "README.md"
 license = "MIT"
@@ -48,41 +48,15 @@ line-length = 120
 target-version = "py311"
 
 [tool.ruff.lint]
-select = ["E4", "E7", "E9", "F", "W"]
+select = ["E4", "E7", "E9", "F", "W", "B", "BLE", "UP"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["E501"]
 
 [tool.mypy]
 python_version = "3.11"
-# Every module that passes `disallow_untyped_defs` today; add a module here once its last untyped def is gone.
-files = [
-  "src/topomark/__init__.py",
-  "src/topomark/__main__.py",
-  "src/topomark/cli.py",
-  "src/topomark/commands/__init__.py",
-  "src/topomark/commands/_common.py",
-  "src/topomark/config.py",
-  "src/topomark/context.py",
-  "src/topomark/contract.py",
-  "src/topomark/docs.py",
-  "src/topomark/errors.py",
-  "src/topomark/graph.py",
-  "src/topomark/imports.py",
-  "src/topomark/lang/_decl.py",
-  "src/topomark/lang/base.py",
-  "src/topomark/lang/csharp.py",
-  "src/topomark/lang/python.py",
-  "src/topomark/lang/registry.py",
-  "src/topomark/lang/rust.py",
-  "src/topomark/lang/swift.py",
-  "src/topomark/masking.py",
-  "src/topomark/ranking.py",
-  "src/topomark/repo.py",
-  "src/topomark/runners.py",
-  "src/topomark/stamps.py",
-  "src/topomark/testsel.py",
-]
+# The whole package; every def is annotated (`disallow_untyped_defs`), so mypy checks every body.
+files = ["src/topomark"]
 disallow_untyped_defs = true
 follow_imports = "silent"
 ignore_missing_imports = true

@@ -64,16 +64,20 @@ topomark writes English only. The `lang` key is gone; a `topomark.toml` that sti
 | `mention_roots` | `["docs/"]` | Where `impact` searches for prose that mentions a path or name. |
 
 Built-in excludes: `.git/`, `node_modules/`, `.venv*/`, `venv/`, `__pycache__/`, `build/`, `dist/`,
-`.tipo-harness/`, `**/vendor/**`, `**/generated/**`, `*.generated.*`, `*.min.js`, `*.min.css`,
-`**/archive/**`, `*.meta`, `.topomark/`.
+`**/vendor/**`, `**/generated/**`, `*.generated.*`, `*.min.js`, `*.min.css`, `**/archive/**`,
+`*.meta`, `.topomark/`.
 
 Secret-looking paths are never read or listed, whatever the config says:
 `.ssh/`, `ssh_config`, `.env`, `.env.*`, `*.pem`, `*.key`, `*.p12`, `*.pfx`, `*.keystore`, `*.jks`,
 `id_rsa*`, `id_ed25519*`, `id_ecdsa*`, `*.secret`, `*secret*.json`, `secrets.yaml`, `secrets.yml`,
 `*.secrets.yaml`, `*.secrets.yml`, `ssh-hosts.json`, `.netrc`, `.npmrc`, `.pypirc`, `.git-credentials`,
-`service-account*.json`, `*.tfvars`, `*.tfvars.json`, `kubeconfig*`, matched without regard to case.
+`service-account*.json`, `*.tfvars`, `*.tfvars.json`, `kubeconfig*`, `.envrc`, `*.env`, `id_dsa*`,
+`*.ppk`, `*.p8`, `*.kdbx`, `.pgpass`, `.htpasswd`, `.s3cfg`, `.boto`, `.vault-token`, `.dockercfg`,
+`**/.docker/config.json`, `**/.kube/config`, `*.ovpn`, `*.tfstate`, `*.tfstate.backup`, matched without
+regard to case.
 `keys/` and `credentials*` count too, except for source code (`src/auth/credentials.py`,
-`src/keys/bindings.ts`): a name alone does not make a source file a secret.
+`src/keys/bindings.ts`): a name alone does not make a source file a secret. Shell scripts and SQL
+files under those names stay refused: that is where tokens and dumped rows get written down.
 
 ### Glob syntax
 
@@ -133,3 +137,10 @@ command = "Tools/run-tests.sh edit {names}"
 names = "class"
 join = " "
 ```
+
+## Environment
+
+| Variable | What it does |
+|---|---|
+| `TOPOMARK_CACHE` | the cache directory (default `$XDG_CACHE_HOME/topomark`, on Windows `%LOCALAPPDATA%\topomark\Cache`, else `~/.cache/topomark`) |
+| `TOPOMARK_JOBS` | worker processes for the first whole-repo parse of 600 or more files (default: the CPUs, at most 8); `1` parses in the one process. Where worker processes cannot start, topomark parses in the one process without being told |

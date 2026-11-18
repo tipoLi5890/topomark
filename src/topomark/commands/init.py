@@ -27,13 +27,21 @@ files get ``granularity: dir``.
 
 from __future__ import annotations
 
+import argparse
 import json
+import os
 import re
 from collections import Counter
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
 
+from ..errors import TopomarkError
 from . import Result
 from ._common import add
+
+if TYPE_CHECKING:
+    from ..config import Config
+    from ..context import Context
 
 # --------------------------------------------------------------------------- tunables
 MANIFEST_NAMES = frozenset({
@@ -112,7 +120,7 @@ TEXT = {
 }
 
 
-def register(sub, common) -> None:
+def register(sub: Any, common: argparse.ArgumentParser) -> None:
     p = add(sub, common, "init", "detect the stack and write a code-map skeleton (use --dry-run first)",
             "Detects languages and project manifests, proposes areas (one per directory that holds a\n"
             "manifest, otherwise per top-level source directory), suggests excludes for generated files and\n"
@@ -252,7 +260,7 @@ def choose_granularity(p: Proposal) -> None:
         return
     p.granularity, p.depth = "dir", 1
     root = p.path
-    units = Counter()
+    units: Counter[str] = Counter()
     for f in p.files:
         dirs = f[len(root):].split("/")[:-1]
         units["/".join(dirs[:1])] += 1
@@ -305,10 +313,10 @@ def _clean(s: str, limit: int = 160) -> str:
     return s if len(s) <= limit else s[:limit - 1].rstrip() + "…"
 
 
-def manifest_summary(ctx, path: str) -> str:
+def manifest_summary(ctx: Context, path: str) -> str:
     try:
         text = ctx.read(path)
-    except Exception:  # noqa: BLE001 - a broken manifest must never stop init
+    except (OSError, TopomarkError):  # a manifest that cannot be read must never stop init
         return ""
     base = path.rsplit("/", 1)[-1]
     try:
@@ -328,19 +336,19 @@ def manifest_summary(ctx, path: str) -> str:
         if base == "pubspec.yaml":
             m = re.search(r"^description:\s*[\"']?(.+?)[\"']?\s*$", text, re.M)
             return _clean(m.group(1)) if m else ""
-    except (ValueError, AttributeError, TypeError):
+    except (ValueError, AttributeError, TypeError, RecursionError, MemoryError):  # a hostile manifest too
         return ""
     return ""
 
 
-def readme_summary(ctx, d: str, files_all: set[str]) -> str:
+def readme_summary(ctx: Context, d: str, files_all: set[str]) -> str:
     for name in ("README.md", "readme.md", "README.markdown", "README"):
         path = d + name
         if path not in files_all:
             continue
         try:
             text = ctx.read(path)
-        except Exception:  # noqa: BLE001
+        except (OSError, TopomarkError):
             return ""
         if text.startswith("---\n"):
             end = text.find("\n---", 4)
@@ -405,7 +413,7 @@ def toml_config(docs_dir: str, excludes: list[tuple[str, str]]) -> str:
 
 
 # --------------------------------------------------------------------------- the command
-def build_plan(ctx, docs_dir: str) -> dict:
+def build_plan(ctx: Context, docs_dir: str) -> dict:
     from ..config import Config
     from ..docs import is_required, owner_of, Area
     from ..repo import matches_any
@@ -474,7 +482,7 @@ def build_plan(ctx, docs_dir: str) -> dict:
             "rules": rules, "props": props, "unowned": unowned, "conflicts": conflicts}
 
 
-def render_docs(plan: dict, docs_dir: str, cfg) -> dict[str, str]:
+def render_docs(plan: dict, docs_dir: str, cfg: Config) -> dict[str, str]:
     """Render every file; shorten L0's lists until it fits `l0_max` (it never starts over its cap)."""
     out: dict[str, str] = {}
     for caps in ((MAX_RULE_FILES, 20, 12), (12, 8, 8), (6, 4, 5), (3, 0, 3)):
@@ -484,7 +492,7 @@ def render_docs(plan: dict, docs_dir: str, cfg) -> dict[str, str]:
     return out
 
 
-def _render_docs(plan: dict, docs_dir: str, cfg, max_rules: int, max_manifests: int,
+def _render_docs(plan: dict, docs_dir: str, cfg: Config, max_rules: int, max_manifests: int,
                  max_langs: int) -> dict[str, str]:
     T = TEXT
     props: list[Proposal] = plan["props"]
@@ -525,7 +533,7 @@ def _render_docs(plan: dict, docs_dir: str, cfg, max_rules: int, max_manifests: 
     return out
 
 
-def run(args, ctx) -> Result:
+def run(args: argparse.Namespace, ctx: Context) -> Result:
     from ..contract import CONFIG_FILE
     from ..errors import TopomarkError
     from ..repo import outside, write_text
@@ -537,7 +545,7 @@ def run(args, ctx) -> Result:
     plan = build_plan(ctx, docs_dir)
     writes = {CONFIG_FILE: toml_config(docs_dir, plan["excludes"])}
     writes.update(render_docs(plan, docs_dir, cfg))
-    existing = [p for p in writes if (ctx.root / p).exists()]
+    existing = [p for p in writes if os.path.lexists(ctx.root / p)]  # a dangling link counts as existing
     l0_lines = writes[f"{docs_dir}/README.md"].count("\n")
     props: list[Proposal] = plan["props"]
 
@@ -561,6 +569,7 @@ def run(args, ctx) -> Result:
                      f"area files): " + ", ".join(l0r[:8]) + (" …" if len(l0r) > 8 else ""))
     lines.append(f"proposed areas ({len(props)}, {len(plan['required'])} code files):")
     w = max([len(p.name) for p in props] + [4])
+    p: Proposal | str  # an area here, a file to write below
     for p in props:
         scope = p.scope[0] if len(p.scope) == 1 else f"{len(p.scope)} paths"
         gran = f"dir depth {p.depth}" if p.granularity == "dir" else "file"
@@ -585,7 +594,7 @@ def run(args, ctx) -> Result:
         raise TopomarkError("REFUSED", "these files exist, nothing was written: " + ", ".join(existing)
                             + " (add --force to overwrite them)")
     # An existing topomark.toml is hand-tuned (test runners, excludes): --force never replaces it.
-    if CONFIG_FILE in writes and (ctx.root / CONFIG_FILE).is_file():
+    if CONFIG_FILE in writes and os.path.lexists(ctx.root / CONFIG_FILE):
         writes = {k: v for k, v in writes.items() if k != CONFIG_FILE}
         lines.append(f"kept the existing {CONFIG_FILE} (init never overwrites it; edit it by hand)")
     for path, text in writes.items():

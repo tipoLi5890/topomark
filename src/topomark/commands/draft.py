@@ -15,10 +15,18 @@ Directory rows carry their file count right after the path, ``(N files)``, where
 
 from __future__ import annotations
 
+import argparse
 import re
+from typing import TYPE_CHECKING, Any
 
 from . import Result
 from ._common import add
+
+if TYPE_CHECKING:
+    from ..context import Context
+    from ..docs import Area
+    from ..lang.base import FileInfo
+    from ..workspace import Workspace
 
 _HEADINGS = re.compile(r"^##\s+(?:Files|File table|Units|Files and units)\s*$", re.I)
 _SKIP_HEADER = re.compile(r"^(copyright|\(c\)|©|spdx-license|licensed under|@license|all rights reserved|-\*-)", re.I)
@@ -26,7 +34,7 @@ _REPRESENTATIVE = ("__init__.py", "index.ts", "index.tsx", "index.js", "index.mj
                    "main.ts", "main.dart", "lib.rs", "README.md")
 
 
-def register(sub, common) -> None:
+def register(sub: Any, common: argparse.ArgumentParser) -> None:
     p = add(sub, common, "draft", "print (or --write) the rows an area's file table is missing",
             "One row per unit the area file does not mention yet, with a summary from the code (header comment,\n"
             "docstring or first documented symbol) and the current fan-in. Prefilled text is a starting point:\n"
@@ -45,7 +53,7 @@ def _cell(text: str, limit: int = 140) -> str:
     return text if len(text) <= limit else text[:limit - 1].rstrip() + "…"
 
 
-def file_summary(info) -> str:
+def file_summary(info: FileInfo | None) -> str:
     """One line from a FileInfo: header comment, else first documented symbol, else declared names."""
     from ..lang.base import doc_summary
 
@@ -62,7 +70,7 @@ def file_summary(info) -> str:
     return _cell(", ".join(names)) if names else ""
 
 
-def unit_summary(ws, unit: str, files: list[str]) -> str:
+def unit_summary(ws: Workspace, unit: str, files: list[str]) -> str:
     if not unit.endswith("/"):
         return file_summary(ws.infos.get(unit))
     direct = sorted(f for f in files if "/" not in f[len(unit):])
@@ -75,7 +83,7 @@ def unit_summary(ws, unit: str, files: list[str]) -> str:
     return ""
 
 
-def missing_rows(ws, area) -> list[dict]:
+def missing_rows(ws: Workspace, area: Area) -> list[dict]:
     from .. import docs as D
 
     rows = []
@@ -115,7 +123,7 @@ def insert_rows(text: str, rows: list[str]) -> str:
     return "\n".join(lines[:last + 1] + rows + lines[last + 1:])
 
 
-def run(args, ctx) -> Result:
+def run(args: argparse.Namespace, ctx: Context) -> Result:
     from ..errors import TopomarkError
     from ..repo import write_text
     from ..workspace import Workspace

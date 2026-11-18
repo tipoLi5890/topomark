@@ -97,7 +97,7 @@ class TempRepo:
     def close(self) -> None:
         self._tmp.cleanup()
 
-    def __enter__(self) -> "TempRepo":
+    def __enter__(self) -> TempRepo:
         return self
 
     def __exit__(self, *exc: object) -> None:

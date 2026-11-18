@@ -50,7 +50,7 @@ Codex: tools/sync_codex_manifests.py writes .codex-plugin/plugin.json and .agent
 
 ## Change checklist
 - A command, flag or JSON field changes: the cheat sheet in `skills/topomark/SKILL.md`, the
-  matching reference file, README and `.github/README.zh-Hant.md`.
+  matching reference file, README and the translated READMEs in `.github/`.
 - A hook changes: `hooks/hooks.json`, `src/topomark/commands/agent_hook.py`,
   `skills/topomark/reference/adoption.md` (hooks section), README "Using it from an agent".
 - A manifest changes: `python3 tools/sync_version.py --check` and
@@ -63,8 +63,9 @@ Codex: tools/sync_codex_manifests.py writes .codex-plugin/plugin.json and .agent
   plugin root and merges any hooks the manifest declares into it (plugins reference, "How each key
   combines with its default location").
 - The hook `timeout` is in seconds.
-- Skill text is English; the only Traditional Chinese document is `.github/README.zh-Hant.md`
-  (Taiwan usage, full-width punctuation, no dashes).
+- Skill text is English; the only translated documents are the READMEs in `.github/`: Traditional
+  Chinese (Taiwan usage), Simplified Chinese (mainland usage) and Japanese, with full-width
+  punctuation and no dashes.
 
 ## Further reading
 - `README.md`, "Using it from an agent": the hooks and the one-line instruction for AGENTS.md.

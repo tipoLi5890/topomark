@@ -26,13 +26,16 @@ def _name_edge_weight(name: str, referrers: int, focus_names: set[str]) -> float
     return w
 
 
+USERS_SHARE = 0.5  # of a focus file's teleport weight, shared by the files that use it
+
+
 def pagerank_files(nav: Nav, focus_files: set[str], candidates: set[str], focus_names: set[str] | None = None,
                    iterations: int = 40, damping: float = 0.85) -> dict[str, float]:
     """Personalised PageRank over the reference graph with IDF-weighted edges.
 
-    ``Graph.pagerank`` weights every usable name the same, which lets a file of
-    generic helpers (``fetch``, ``report``) outrank the real hubs; here a name used
-    by N files contributes 1/sqrt(N) per edge and plain lowercase words 10x less.
+    Weighting every usable name the same lets a file of generic helpers (``fetch``,
+    ``report``) outrank the real hubs; here a name used by N files contributes
+    1/sqrt(N) per edge and plain lowercase words 10x less.
     Edges only join files of the same language: a Python ``re.compile`` is not a
     reference to a TypeScript ``compile``."""
     g = nav.graph
@@ -44,6 +47,7 @@ def pagerank_files(nav: Nav, focus_files: set[str], candidates: set[str], focus_
     index = {p: i for i, p in enumerate(nodes)}
     lang = [infos[p].lang for p in nodes]
     edges: dict[int, dict[int, float]] = {}  # referrer → {declaring file: weight}, by node index
+    n: str | int  # a declared name here, the node count below
     for d, path in enumerate(nodes):
         for n in g.names_of(path):
             refs = g.ident_files.get(n, ())
@@ -55,7 +59,16 @@ def pagerank_files(nav: Nav, focus_files: set[str], candidates: set[str], focus_
                     e = edges.setdefault(ri, {})
                     e[d] = e.get(d, 0.0) + w
     pers = {f: 1.0 for f in focus_files if f in index}
-    total = len(pers) or len(nodes)
+    # Rank flows from a file to what it uses, so a focus file that uses nothing (a leaf) would
+    # centre the map on itself alone. Its users get half a focus file's weight between them, by
+    # how much of it they use: the map then shows what a change to the focus reaches as well.
+    for f in list(pers):
+        d = index[f]
+        users = {ri: e[d] for ri, e in edges.items() if d in e and nodes[ri] not in focus_files}
+        total_use = sum(users.values())
+        for ri, w in users.items():
+            pers[nodes[ri]] = pers.get(nodes[ri], 0.0) + USERS_SHARE * w / total_use
+    total = sum(pers.values()) or len(nodes)
     teleport = [(pers.get(k, 0.0) if pers else 1.0) / total for k in nodes]
     rank = list(teleport)
     adj = [(src, sum(dst.values()), list(dst.items())) for src, dst in edges.items()]
@@ -69,11 +82,11 @@ def pagerank_files(nav: Nav, focus_files: set[str], candidates: set[str], focus_
             share = damping * rank[src] / out_weight
             for dst, w in dsts:
                 nxt[dst] += share * w
-        diff = sum(abs(a - b) for a, b in zip(nxt, rank))
+        diff = sum(abs(a - b) for a, b in zip(nxt, rank, strict=True))
         rank = nxt
         if diff < 1e-9 * n:
             break
-    return dict(zip(nodes, rank))
+    return dict(zip(nodes, rank, strict=True))
 
 
 def outline_size(info: FileInfo) -> int:

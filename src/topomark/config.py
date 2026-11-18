@@ -2,7 +2,8 @@
 file's frontmatter (``scope``, ``granularity``) is the single source of truth.
 
 Every key is optional; ``Config.defaults(root)`` is what a repo without the file
-gets. Unknown keys are a CONFIG error so a typo can't silently do nothing.
+gets. Unknown sections and keys become ``Config.warnings`` (printed on stderr), so a typo
+can't silently do nothing; a wrong type is a CONFIG error.
 """
 
 from __future__ import annotations
@@ -83,11 +84,11 @@ class Config:
         return self.docs_dir.rstrip("/") + "/"
 
     @classmethod
-    def defaults(cls, root: Path) -> "Config":
+    def defaults(cls, root: Path) -> Config:
         return cls(root=root)
 
     @classmethod
-    def load(cls, root: Path, explicit: str | None = None) -> "Config":
+    def load(cls, root: Path, explicit: str | None = None) -> Config:
         path = Path(explicit).resolve() if explicit else root / CONFIG_FILE
         if not path.is_file():
             if explicit:
@@ -101,7 +102,7 @@ class Config:
         return cls.from_dict(root, raw, path)
 
     @classmethod
-    def from_dict(cls, root: Path, raw: dict[str, Any], path: Path | None = None) -> "Config":
+    def from_dict(cls, root: Path, raw: dict[str, Any], path: Path | None = None) -> Config:
         where = path.name if path else CONFIG_FILE
         top = raw.get("topomark", {})
         if isinstance(top, dict) and "lang" in top:

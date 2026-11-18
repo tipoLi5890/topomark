@@ -79,13 +79,6 @@ class FileInfo:
             **({"degraded": self.degraded} if self.degraded else {}),
         }
 
-    @classmethod
-    def from_json(cls, d: dict, idents: list[str], surface: str) -> "FileInfo":
-        syms = [Symbol(**{**{"container": "", "attrs": [], "doc": ""}, **s}) for s in d["symbols"]]
-        return cls(path=d["path"], lang=d["lang"], header=d["header"], symbols=syms, surface=surface,
-                   idents=set(idents), types=d["types"], line_count=d["line_count"], imports=d.get("imports", []),
-                   degraded=d.get("degraded", ""))
-
 
 def norm(s: str) -> str:
     return _WS.sub(" ", s).strip()
@@ -152,6 +145,11 @@ def doc_summary(raw_comment: str, limit: int = 140) -> str:
         if 0 < k < limit:
             return text[:k + len(stop)].strip()
     return text if len(text) <= limit else text[:limit - 1] + "…"
+
+
+def count_lines(text: str) -> int:
+    """Lines as an editor numbers them: the newline that ends the last line starts no new one."""
+    return text.count("\n") + (1 if text and not text.endswith("\n") else 0)
 
 
 def surface_text(header: list[str], decls: list[str]) -> str:

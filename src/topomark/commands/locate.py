@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+import argparse
+from typing import TYPE_CHECKING, Any
+
 from . import Result
 from ._common import add
+
+if TYPE_CHECKING:
+    from ..context import Context
 
 TRACE_CAP = 30  # frames listed; a deep recursion repeats itself
 
 
-def register(sub, common) -> None:
+def register(sub: Any, common: argparse.ArgumentParser) -> None:
     p = add(sub, common, "locate", "from an error message or a stack trace to the code that produced it",
             "A message: its word runs are looked up literally in every parsed file (so interpolated\n"
             "values and strings split across lines still match), weighted by how rare each run is, and\n"
@@ -51,7 +57,7 @@ def _tag(group: str) -> str:
     return "" if group == "code" else f"[{group}] "
 
 
-def run(args, ctx) -> Result:
+def run(args: argparse.Namespace, ctx: Context) -> Result:
     from .. import locate as L
     from ..errors import TopomarkError
     from ..navigate import Nav

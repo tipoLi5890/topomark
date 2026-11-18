@@ -11,6 +11,7 @@ import re
 
 from . import repo
 from .config import TestRunner
+from .contract import CONFIG_FILE
 from .testsel import TestPick
 
 def runner_for(path: str, runners: list[TestRunner]) -> TestRunner | None:
@@ -35,7 +36,9 @@ def runner_commands(runners: list[TestRunner], picks: list[TestPick]) -> tuple[l
     for idx in sorted(groups):
         r = runners[idx]
         cmds, gran = render_runner(r, groups[idx])
-        commands.append({"runner": r.match, "names": gran, "files": [pk.path for pk in groups[idx]], "commands": cmds})
+        # The template is the repository's own text: an agent should read it before running it.
+        commands.append({"runner": r.match, "names": gran, "files": [pk.path for pk in groups[idx]], "commands": cmds,
+                         "source": CONFIG_FILE})
     return commands, unmatched
 
 
@@ -101,6 +104,12 @@ def _shell_quote(value: str, state: str) -> str:
     return shlex.quote(value)
 
 
+def _not_an_option(value: str) -> str:
+    """Repo-relative paths only start with ``-`` when a file is named so; ``./`` keeps it a path.
+    Class and method names never start with ``-``."""
+    return "./" + value if value.startswith("-") else value
+
+
 def fill_template(tmpl: str, values: dict[str, str | list[str]], join: str = " ") -> str:
     """A runner command: placeholders replaced by shell-quoted values (list values quoted one by
     one, then joined with ``join``). An empty ``{class}`` or ``{method}`` drops with the separator
@@ -126,6 +135,8 @@ def fill_template(tmpl: str, values: dict[str, str | list[str]], join: str = " "
         state = _shell_state(lit, state)
         if k < len(names):
             v = values.get(names[k], "")
+            if names[k] in ("file", "files", "names"):  # a path such as `-x.py` must not read as an option
+                v = [_not_an_option(x) for x in v] if isinstance(v, list) else _not_an_option(v)
             out.append(join.join(_shell_quote(x, state) for x in v) if isinstance(v, list) else _shell_quote(v, state))
     return "".join(out).rstrip()
 

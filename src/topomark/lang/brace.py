@@ -17,8 +17,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from .base import (SIGNATURE_MAX, FileInfo, Symbol, clip_signature, doc_summary, head_comment, idents_of, norm,
-                   surface_text)
+from .base import (SIGNATURE_MAX, FileInfo, Symbol, clip_signature, count_lines, doc_summary, head_comment, idents_of,
+                   norm, surface_text)
 from .scan import Masked, Syntax, mask
 
 _ANNOTATION_ONLY = re.compile(r"^(?:@[\w.:]+(?:\s*\((?:[^()]|\([^()]*\))*\))?\s*)+$")
@@ -137,7 +137,7 @@ class BraceLanguage:
         symbols, surface_decls = self._walk(m)
         header = self.header_of(text)
         info = FileInfo(path=path, lang=self.name, header=header, symbols=symbols,
-                        idents=idents_of(m.text), line_count=m.line_count)
+                        idents=idents_of(m.text), line_count=count_lines(text))
         info.types = [s.name for s in symbols if not s.container and s.kind in DECL_SCOPES - {"file", "namespace"}
                       or (not s.container and s.kind in ("function", "const") and s.exported and self.functions_are_types)]
         info.types = list(dict.fromkeys(info.types))
@@ -158,6 +158,7 @@ class BraceLanguage:
         n = len(text)
         term = self.terminators
         interesting = re.compile(r"[{};()\[\]\n]")
+        d: Decl | list[Decl] | None  # a block header's declaration, or a statement's (Go groups: several)
         i = 0
         while i < n:
             mm = interesting.search(text, i)

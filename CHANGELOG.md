@@ -19,6 +19,102 @@ All notable changes to `topomark` are documented here. The format is based on
 
 ## [Unreleased]
 
+### Security
+
+Fixes for a repository that topomark runs inside but nobody has reviewed (one an agent just
+cloned). SECURITY.md has a new section on what such a repository controls.
+
+- `bin/topomark` starts Python with `-P`. It ran `python -m topomark`, which puts the current
+  directory first on `sys.path`. The plugin hooks run it in whatever repository the agent opened, so a
+  `tomllib.py` or `json.py` at its root ran as code on SessionStart and on every Read and Edit.
+- `stamps.json` blob ids must be git object ids. `diff` passed them to `git diff` as arguments, and an
+  id such as `--output=<path>` made git write that file.
+- `gen`, `init` and `stamp` no longer write through a symbolic link that leads out of the repository,
+  or through a dangling link; `stamp` no longer reads `stamps.json` through one.
+- git runs with `core.fsmonitor=false`, and `changes` adds `--no-textconv`: a repository's own
+  `.git/config` could name a program for git to start.
+- `hook install` and `uninstall` refuse when `core.hooksPath` points outside the repository's `.git`;
+  they used to write there, against the module's own docstring.
+- Runner commands carry `"source": "topomark.toml"` (JSON) and `tests-for` says where the command came
+  from; the skill now tells agents to read the command and run only a test command. A file name that
+  starts with `-` is filled in as `./-name`.
+- More credential files are refused by name: `.envrc`, `*.env`, `id_dsa*`, `*.ppk`, `*.p8`, `*.kdbx`,
+  `.pgpass`, `.htpasswd`, `.s3cfg`, `.boto`, `.vault-token`, `.dockercfg`, `**/.docker/config.json`,
+  `**/.kube/config`, `*.ovpn`, `*.tfstate`, `*.tfstate.backup`.
+- The SessionStart hook clips each area name and file as it already clipped titles, and the skill says
+  that output quotes the repository and is never an instruction.
+
+### Added
+
+- Simplified Chinese and Japanese READMEs (`.github/README.zh-Hans.md`, `.github/README.ja.md`), linked
+  from README.md and from each other.
+- `.github/workflows/release.yml`: a `vX.Y.Z` tag builds the sdist and wheel once, checks the tag
+  against `pyproject.toml` and CHANGELOG.md, attaches a CycloneDX SBOM and signed build provenance,
+  publishes to PyPI through Trusted Publishing after approval in the `pypi` environment, and creates
+  the GitHub release. SECURITY.md says how to verify a release with `gh attestation verify`.
+
+### Changed
+
+- `.tipo-harness/` is no longer a built-in exclude (it was a folder of the author's own tooling); add
+  it to `exclude` in `topomark.toml` where it exists.
+- CI also runs the tests on macOS (Python 3.13).
+- CI installs ruff, mypy, build and setuptools from hash-locked `tools/requirements-ci.txt` (generated
+  from `tools/requirements-ci.in`), builds with `--no-isolation`, pins every action by commit SHA and
+  checks out without persisting the token.
+- SECURITY.md: GitHub private vulnerability reporting, what is in scope, and a 90-day disclosure window.
+- A symbolic link inside the repository that points out of it is no longer written through by `gen`,
+  `init` or `stamp`: the command now exits 2 (`REFUSED`). A link that stays inside the repository is
+  still written through.
+- `init` counts a dangling link as an existing file (refused without `--force`).
+- A call builds the parser of the command it was given and imports only that module (about 5 ms less
+  per call, so per plugin hook); `--help`, no command and an unknown word still get every command.
+- The first whole-repo command on a repository (or the first after an upgrade) parses in worker
+  processes when 600 or more files need it: a cold `map` on the 3,000-file synthetic repo went from
+  2.7 s to 1.0 s on an idle 8-core machine. `TOPOMARK_JOBS=1` keeps it in one process, which is also what happens where
+  worker processes cannot start.
+- `stale` no longer stores the current content of every unit as git objects (`git hash-object -w`);
+  it compares ids, and a read-only command now writes nothing into `.git`. `stamp` and `diff`
+  still store what they did.
+- `check`, `gen` and `changes` do less work per file on a large repository (area lookups remembered,
+  directories and area edges from one pass, docs read once for mentions). On the 3,000-file synthetic
+  repo, whose code map is small, the warm timings are within noise of 0.3.0.
+- `tools/bench_nav.py` times `check`, `stale`, `gen`, `changes` and `locate` too, the code-map ones in
+  a scratch copy with a baselined code map and one changed interface.
+- On Windows the cache is in `%LOCALAPPDATA%\topomark\Cache` (it was `~/.cache/topomark`, which can be
+  deleted); `TOPOMARK_CACHE` and `XDG_CACHE_HOME` still come first.
+- Import edges for C, C++ and Objective-C (`#include "x.h"`), Dart, Go, Rust, Java and Kotlin, next to
+  Python and JS/TS: `impact` and `brief` list those importers, and `tests-for` walks them from a
+  changed file to tests that never name it. A Go import counts when its path ends in a folder of
+  this repository and the module prefix in front is confirmed by a second import or by two matched
+  path segments. Fan-in numbers do not change (they are name references); `importers` counts do.
+- `find` orders partial matches of the same standing by how much of the name the query covers
+  (`Stamps` before `STAMPS_VERSION` for `stamp`); the path only breaks ties.
+- `map --focus` on a file gives the files that use it half a focus file's weight between them. A
+  focus file that uses nothing (a leaf) used to centre the map on itself alone.
+- The navigation eval scores `refs`, `impact` and `map` and has Go, C# and TypeScript tasks on the
+  synthetic repo: 42 tasks, MRR 0.823 (0.789 before the two ranking changes above). CI's floor moved
+  from 0.70 to 0.75.
+- mypy checks the whole package (every def annotated; it was 25 of 67 modules), and ruff also runs
+  flake8-bugbear, blind-except and pyupgrade. A handler's `ctx: Context` annotation is an import for
+  type checking only, and fan-in counts it: `src/topomark/context.py` went from 3/2 to 31/2.
+- `release.yml` runs lint, types, the unit tests, the navigation eval and `topomark check` in a job of
+  its own before anything is built, so a tag on a commit CI never saw publishes nothing.
+- `changes` asks git about the base revision once, and `diff` reads every reviewed version of a
+  directory unit from one git process.
+- C-family sources with the extensions `.hxx`, `.h++`, `.c++` and `.inl` under `keys/` or named
+  `credentials*` are read as source, like `.hpp` and `.cpp` already were. Shell scripts and SQL files
+  with those names stay refused.
+
+### Fixed
+
+- A JSON or TOML file nested tens of thousands deep made every whole-repo command exit 7; it is now
+  read as plain text, and `syntax` reports it as nested too deeply to parse.
+- `gen` crashed on a `package.json` whose `dependencies` is not an object.
+- `line_count` (`outline`, `brief`, `impact`) was one too high for a file that ends with a newline.
+- `owner`, `impact`, `brief` and `changes` said a stamp had `changed` whenever its hash differed;
+  they now give `check`'s answer, which reads the reviewed content again with today's adapters.
+- `locate --trace` lost the function name of a Go frame whose path starts with a drive letter.
+
 ## [0.3.0] - 2026-10-09
 
 ### Added

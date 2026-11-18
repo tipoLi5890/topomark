@@ -16,10 +16,13 @@ python3 -m topomark capabilities --json         # with PYTHONPATH=src
 python3 tools/sync_version.py --check           # manifests match pyproject
 python3 tools/sync_codex_manifests.py --check   # .codex-plugin/ and .agents/ generated from .claude-plugin/
 python3 tools/lint_skills.py                    # SKILL.md frontmatter and size gates
-python3 tools/eval_nav.py --fail-under 0.70     # navigation eval on the pinned snapshot (CI's floor)
+python3 tools/eval_nav.py --fail-under 0.75     # navigation eval on the pinned snapshot (CI's floor)
 ```
 
-ruff and mypy run in CI only (`pip install ruff mypy` there); their settings are in `pyproject.toml`.
+ruff and mypy run in CI only, installed from hash-locked `tools/requirements-ci.txt` (edit
+`tools/requirements-ci.in`, then regenerate with the `uv pip compile` line at its top); their settings
+are in `pyproject.toml`. Nothing bumps them automatically: add `--upgrade` to that line to move every
+pin. Workflow actions are pinned by commit SHA (the version in a comment) and bumped by hand.
 
 ## Invariants (tests enforce most of them; don't regress)
 
@@ -37,7 +40,7 @@ ruff and mypy run in CI only (`pip install ruff mypy` there); their settings are
   `sys.exit` from a handler.
 - **Read-only on target repos** except the files a command owns: `init` (topomark.toml and
   `docs_dir`), `draft --write`, `gen`, `sync`, `stamp` (`docs_dir`), `hook` (`.git/hooks`).
-  `init --dry-run` writes nothing, anywhere. `stamp`, `stale` and `diff` also store the reviewed
+  `init --dry-run` writes nothing, anywhere. `stamp` and `diff` also store the reviewed
   blobs as git objects (`git hash-object -w`), never as files. The analysis cache lives in the user
   cache directory.
 - **Files come from git**, secrets are never read (`repo.SECRET_PATTERNS`, not configurable).
@@ -47,8 +50,9 @@ ruff and mypy run in CI only (`pip install ruff mypy` there); their settings are
 - **Docs are executable.** Every `topomark ...` line in a ```bash block of README.md, docs/,
   skills/ and the templates must parse with the real parser (`tests/test_meta.py`).
 - **English output only.** Templates, generated reports and drafted rows are English; the only
-  formats parsed are `fan-in P/T` and `` `dir/` (N files) ``. The one zh-Hant text,
-  `.github/README.zh-Hant.md`, uses Taiwan usage and full-width punctuation, and never a dash (— or ——).
+  formats parsed are `fan-in P/T` and `` `dir/` (N files) ``. The translated READMEs
+  (`.github/README.zh-Hant.md` in Taiwan usage, `README.zh-Hans.md` in mainland usage, `README.ja.md`)
+  use full-width punctuation, never a dash (— or ——), and link each other and README.md.
 
 ## Adding a command
 
@@ -66,7 +70,17 @@ ruff and mypy run in CI only (`pip install ruff mypy` there); their settings are
 2. `python3 tools/sync_version.py` then `python3 tools/sync_codex_manifests.py`.
 3. Move `[Unreleased]` to `[x.y.z] - YYYY-MM-DD` in `CHANGELOG.md`, add the compare link.
 4. Full suite green, `python3 tools/lint_skills.py`, both `--check` tools green.
-5. Commit, tag `vX.Y.Z`, push the tag.
+5. Commit, tag `vX.Y.Z`, push the tag. `.github/workflows/release.yml` then checks the tag against
+   `pyproject.toml` and CHANGELOG.md, runs the gates of step 4 again, builds once, attaches the SBOM and build provenance, waits for
+   approval in the `pypi` environment, publishes to PyPI (Trusted Publishing) and creates the GitHub
+   release from the CHANGELOG section.
+
+Before the first PyPI release:
+
+- The one-time setup at the top of `.github/workflows/release.yml`: a PyPI trusted publisher and the
+  `pypi` environment with a required reviewer.
+- README "Install" (and the translated READMEs in `.github/`): add `pipx install topomark` next to the git
+  instructions.
 
 ## Layout
 

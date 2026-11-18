@@ -338,6 +338,18 @@ class GoldenOutlines(unittest.TestCase):
         self.assertIn("3 opening and 2 closing braces", ts.degraded)
         self.assertEqual(analyze("s.ts", "export const s = '{';\n// }}\nexport function z() {\n  return `{`;\n}\n").degraded, "")
 
+    def test_line_count_is_the_editors(self) -> None:
+        """The newline that ends the last line starts no new one: agents use the count as a Read offset."""
+        for rel in GOLDEN:
+            with self.subTest(rel):
+                text = (FIXTURES / rel).read_text(encoding="utf-8").replace("\r\n", "\n")
+                self.assertEqual(info_of(rel).line_count, len(text.splitlines()))
+        for name in ("a.py", "a.ts", "a.sh", "a.sql", "a.json", "a.md", "a.txt"):
+            with self.subTest(name):
+                self.assertEqual(analyze(name, "").line_count, 0)
+                self.assertEqual(analyze(name, "x").line_count, 1)
+                self.assertEqual(analyze(name, "x\ny\n").line_count, 2)
+
     def test_outlines_match(self) -> None:
         for rel, expected in GOLDEN.items():
             with self.subTest(rel):

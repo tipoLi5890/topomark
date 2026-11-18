@@ -15,7 +15,7 @@ from __future__ import annotations
 import ast
 import re
 
-from .base import DYNAMIC, FileInfo, Symbol, doc_summary, head_comment, idents_of, norm, surface_text
+from .base import DYNAMIC, FileInfo, Symbol, count_lines, doc_summary, head_comment, idents_of, norm, surface_text
 from .scan import Syntax, mask
 
 SYNTAX = Syntax(line_comments=("#",), block_comments=(), quotes=('"', "'"), triple_quotes=('"""', "'''"),
@@ -96,7 +96,7 @@ class Python:
         if all_names is not None:
             decls.append("__all__ = " + ", ".join(sorted(all_names)))
         info = FileInfo(path=path, lang=self.name, header=header, symbols=symbols, idents=idents_of(m.text),
-                        line_count=len(rlines))
+                        line_count=count_lines(text))
         info.surface = surface_text(header, decls)
         info.types = [s.name for s in symbols if not s.container and s.kind in ("class", "function") and s.exported]
         info.imports = python_imports(m.text, text)

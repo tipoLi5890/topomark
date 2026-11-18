@@ -1,0 +1,6 @@
+# CI-only tools (topomark itself has no dependencies). Edit this file, then regenerate the lock:
+#   uv pip compile tools/requirements-ci.in --universal --python-version 3.11 --generate-hashes -o tools/requirements-ci.txt
+build
+mypy
+ruff
+setuptools>=77

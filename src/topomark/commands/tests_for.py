@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+import argparse
+from typing import TYPE_CHECKING, Any
+
 from . import Result
 from ._common import add, rel
 
+if TYPE_CHECKING:
+    from ..context import Context
 
-def register(sub, common) -> None:
+
+def register(sub: Any, common: argparse.ArgumentParser) -> None:
     p = add(sub, common, "tests-for", "the tests that cover changed files, as runnable commands",
             "Changed files (the paths given, else `git diff HEAD` plus untracked files) → the names\n"
             "they declare → test files that mention those names → the test methods whose bodies use\n"
@@ -28,7 +34,7 @@ def register(sub, common) -> None:
     p.set_defaults(handler=run)
 
 
-def run(args, ctx) -> Result:
+def run(args: argparse.Namespace, ctx: Context) -> Result:
     from ..errors import TopomarkError
     from ..navigate import Nav, changed_files
     from ..runners import runner_commands
@@ -69,7 +75,7 @@ def run(args, ctx) -> Result:
     if not ordered:
         lines.append("  no tests mention the changed files' names")
     for c in commands:
-        lines.append(f"\nrun ({c['runner']}, by {c['names']}):")
+        lines.append(f"\nrun ({c['runner']}, by {c['names']}; command from {c['source']}):")
         lines += [f"  {cmd}" for cmd in c["commands"]]
     if unmatched:
         lines.append("\nno [[tests.runner]] matches these test files (add one to topomark.toml):")

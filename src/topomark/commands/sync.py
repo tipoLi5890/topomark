@@ -2,18 +2,24 @@
 
 from __future__ import annotations
 
+import argparse
+from typing import TYPE_CHECKING, Any
+
 from . import Result
 from ._common import add
 
+if TYPE_CHECKING:
+    from ..context import Context
 
-def register(sub, common) -> None:
+
+def register(sub: Any, common: argparse.ArgumentParser) -> None:
     p = add(sub, common, "sync", "update the fan-in numbers written in area files",
             "Rows whose first cell is a file or directory unit and whose text contains `fan-in P/T` get\n"
             "the current numbers. Nothing else in the file changes.")
     p.set_defaults(handler=run)
 
 
-def run(args, ctx) -> Result:
+def run(args: argparse.Namespace, ctx: Context) -> Result:
     from ..repo import write_text
     from ..workspace import FAN_RX, Workspace
 
@@ -24,6 +30,7 @@ def run(args, ctx) -> Result:
         hits = ws.fan_mismatches(a.text)
         for i, subject, old, new in hits:
             m = FAN_RX.search(lines[i])
+            assert m is not None  # fan_mismatches lists only lines FAN_RX matches
             lines[i] = lines[i][:m.start()] + f"fan-in {new[0]}/{new[1]}" + lines[i][m.end():]
             changed.append({"file": a.file, "subject": subject, "old": list(old), "new": list(new)})
         if hits:

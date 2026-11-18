@@ -83,6 +83,12 @@ class CFamily(BraceLanguage):
     syntax = Syntax(line_comments=("//",), block_comments=(("/*", "*/"),), quotes=('"', "'"),
                     char_literals_only=True, cpp_raw=True)
 
+    def imports_of(self, masked: Masked) -> list[str]:
+        from ._imports import c_includes
+
+        # the original on both sides: `premask` blanks preprocessor lines before the walker sees them
+        return c_includes(masked.original, masked.original)
+
     def analyze(self, path: str, text: str) -> FileInfo:
         low = path.lower()
         self.name = "objc" if low.endswith((".m", ".mm")) else "c" if low.endswith(".c") else "cpp"
@@ -244,7 +250,9 @@ class CFamily(BraceLanguage):
         if m:
             names = re.findall(_IDENT, m.group(1))
             return Decl("property", names[-1], True, signature=_sig(raw)) if names else None
-        word = re.match(r"\w*", h).group(0)
+        wm = re.match(r"\w*", h)
+        assert wm is not None  # `\w*` matches the empty string
+        word = wm.group(0)
         if word in ("friend", "static_assert", "_Static_assert", "return", "goto") or h.startswith(("using namespace",
                                                                                                     "@")):
             return None

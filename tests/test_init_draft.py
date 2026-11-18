@@ -41,7 +41,7 @@ CODE.update({f"product/backend/app/util{i}.py": f'"""Helper {i}."""\n\ndef helpe
 
 def snapshot(root) -> dict[str, float]:
     out = {}
-    for dirpath, dirnames, filenames in os.walk(root):
+    for dirpath, _dirnames, filenames in os.walk(root):
         if ".git" in dirpath.split(os.sep):
             continue
         for f in filenames:

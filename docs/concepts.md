@@ -11,8 +11,8 @@ An agent (or a new colleague) should read only as deep as the task needs:
 | **L2** | the code, read by symbol: `outline`, `symbol`, `search`, `refs`, `impact`, `brief` | as little as possible |
 
 The code map links the repo's existing rule files (CLAUDE.md, AGENTS.md, ADRs, architecture docs)
-instead of restating them. A summary that copies a design reason goes stale twice as fast as one
-that links it.
+instead of restating them. A summary that copies a design reason goes stale sooner than one that
+links it.
 
 ## Areas, scopes and units
 
@@ -79,8 +79,9 @@ says what to update. `topomark sync` rewrites the numbers in area files, `topoma
 `_generated/fanin.md` (and `_generated/modules.md`, the module graph from `.asmdef` and
 `package.json` manifests).
 
-Import statements are a second signal: `impact <file>` lists the files whose Python or JS/TS
-imports resolve to it, and `tests-for` follows them to the tests of a file that no test mentions.
+Import statements are a second signal: `impact <file>` lists the files whose imports resolve to it
+(Python, JS/TS, C-family `#include "x.h"`, Dart, Go, Rust, Java and Kotlin; not C# or Swift, which
+name namespaces and modules), and `tests-for` follows them to the tests of a file that no test mentions.
 Between two Python files they also decide fan-in: a mention counts only when the file imports the
 declaring module (directly, or through a module that imports it and mentions the name), so a
 function named `search` is not credited with every `re.search` in the repository. Other languages

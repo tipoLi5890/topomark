@@ -31,7 +31,7 @@ topomark init --docs-dir docs/map
 ```
 
 It writes `topomark.toml`, `<docs_dir>/README.md`, `<docs_dir>/_TEMPLATE.md` and one file per area,
-and refuses (writing nothing) when any of them exists; `--force` overwrites. Rename areas, merge or
+and refuses (writing nothing) when any of them exists; `--force` overwrites the code-map files, never an existing `topomark.toml`. Rename areas, merge or
 split scopes, and fix summaries now: it is cheapest before rows exist.
 
 ## 3. Fill the rows
@@ -79,8 +79,11 @@ per session as marker files in the user cache directory (`agent-hook/` beside th
 after `/clear` or a compaction a hint can come once more. Try one by hand with
 `echo '{"cwd": "."}' | topomark agent-hook session-start`.
 
-Codex and other agents have no such hooks: the skill tells them to run `topomark syntax --diff`
-after every edit.
+The hooks run `bin/topomark`, which is a bash script: on Windows they need bash on `PATH` (Git Bash).
+The CLI itself does not: `python -m topomark` and the pipx entry point run without it.
+
+topomark ships these hooks for Claude Code only. In other agents the skill says to run
+`topomark syntax --diff` after every edit.
 
 ## Repos that already have a hand-written map
 

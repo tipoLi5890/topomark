@@ -27,6 +27,10 @@ import re
 from bisect import bisect_right
 from collections import defaultdict
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .navigate import Nav
 
 MAX_GRAMS = 80  # word runs looked up per message; a pasted log beyond that adds noise, not signal
 RARE = 3        # a place matched only by a two-word run is kept when that run is in at most this many files
@@ -74,7 +78,7 @@ class Place:
 _TIER = {"code": 0, "test": 1, "doc": 2}
 
 
-def _group(nav, path: str) -> str:
+def _group(nav: Nav, path: str) -> str:
     from .masking import NON_CODE_LANGS
 
     info = nav.infos.get(path)
@@ -92,7 +96,7 @@ def _starts(text: str) -> list[int]:
     return out
 
 
-def find_message(nav, message: str, regex: bool = False) -> list[Place]:
+def find_message(nav: Nav, message: str, regex: bool = False) -> list[Place]:
     """Places whose source contains the message (or matches ``regex``), best first."""
     from .errors import TopomarkError
     from .navigate import clip, enclosing_symbol
@@ -188,9 +192,9 @@ _GECKO = re.compile(r"^\s*(?P<func>[^@\s]*)@(?P<path>[^\s@]+?):(?P<line>\d+)(?::
 _JVM = re.compile(r"^\s*at (?P<func>[\w$.<>/]+)\((?P<file>[^():]+\.(?:java|kt|kts|scala|groovy)):(?P<line>\d+)\)")
 _CS = re.compile(r"^\s*at (?P<func>.+?) in (?P<path>.+?):line (?P<line>\d+)\s*$")
 _DART = re.compile(r"^#\d+\s+(?P<func>.+?)\s+\((?P<path>(?:file|package|dart):[^\s)]+?):(?P<line>\d+)(?::\d+)?\)")
-_GO = re.compile(r"^\s+(?P<path>[^\s:]+\.go):(?P<line>\d+)(?:\s+\+0x[0-9a-fA-F]+)?\s*$")
-_RUST = re.compile(r"^\s*(?:at |panicked at )(?P<path>[^\s:]+\.rs):(?P<line>\d+)(?::\d+)?")
-_RUST_PANIC = re.compile(r"panicked at (?P<path>[^\s:']+\.rs):(?P<line>\d+)")
+_GO = re.compile(r"^\s+(?P<path>(?:[A-Za-z]:)?[^\s:]+\.go):(?P<line>\d+)(?:\s+\+0x[0-9a-fA-F]+)?\s*$")
+_RUST = re.compile(r"^\s*(?:at |panicked at )(?P<path>(?:[A-Za-z]:)?[^\s:]+\.rs):(?P<line>\d+)(?::\d+)?")
+_RUST_PANIC = re.compile(r"panicked at (?P<path>(?:[A-Za-z]:)?[^\s:']+\.rs):(?P<line>\d+)")
 # generic `path:line` / `path(line,col)`: a whole path token (it starts at a token boundary and
 # is matched possessively, so a long line costs linear time), checked for an extension afterwards
 _GENERIC = re.compile(r"(?<![\w.~@+/\\-])(?P<path>(?:[A-Za-z]:)?[\w.~@+/\\-]++)"
@@ -294,7 +298,7 @@ class TraceResult:
     formats: list[str] = field(default_factory=list)
 
 
-def locate_trace(nav, text: str) -> TraceResult:
+def locate_trace(nav: Nav, text: str) -> TraceResult:
     from .errors import TopomarkError
     from .navigate import clip, enclosing_symbol
 

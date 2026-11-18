@@ -26,7 +26,7 @@ CLAUDE_PLUGIN = ".claude-plugin/plugin.json"
 CODEX_PLUGIN = ".codex-plugin/plugin.json"
 AGENTS_MARKET = ".agents/plugins/marketplace.json"
 
-SHORT = "Navigate any repo by symbol, impact and tests; keep a layered code map honest with review stamps."
+SHORT = "Navigate a git repository by symbol, impact and tests; keep a layered code map current with review stamps."
 LONG = ("Drives the zero-dependency `topomark` CLI: outline a file's symbols, print one symbol, find definitions "
         "and references, summarise the impact of a change, select the tests it needs, and build a ranked repo map "
         "in a token budget. Keeps a progressive-disclosure code map (an L0 index, one file per area, then the code) "

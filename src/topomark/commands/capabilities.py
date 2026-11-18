@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import argparse
+from typing import TYPE_CHECKING, Any
 
 from . import Result
 from ._common import add
 
+if TYPE_CHECKING:
+    from ..context import Context
 
-def register(sub, common) -> None:
+
+def register(sub: Any, common: argparse.ArgumentParser) -> None:
     p = add(sub, common, "capabilities", "describe every command, argument and flag (use --json)")
     p.set_defaults(handler=run)
 
@@ -32,7 +36,7 @@ def describe(parser: argparse.ArgumentParser) -> dict:
     return commands
 
 
-def run(args, ctx) -> Result:
+def run(args: argparse.Namespace, ctx: Context) -> Result:
     from .. import __version__
     from ..cli import build_parser
     from ..errors import EXIT

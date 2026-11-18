@@ -138,6 +138,50 @@ class EvalNavTest(unittest.TestCase):
         self.assertIn("controls held 1/1", text)
         self.assertIn("expected miss: held", text)
 
+    def test_refs_impact_and_map_are_read_from_their_answers(self) -> None:
+        tasks = '''
+[[task]]
+id = "impact-router"
+kind = "impact"
+query = "Router"
+gold = "tests/test_app.py"
+
+[[task]]
+id = "impact-file"
+kind = "impact"
+query = "tests/test_app.py"
+gold = "tests/test_app.py"
+expect = "miss"
+
+[[task]]
+id = "refs-router"
+kind = "refs"
+query = "Router"
+gold = "tests/test_app.py"
+
+[[task]]
+id = "map-focus"
+kind = "map"
+args = ["--focus", "tests/test_app.py", "--tokens", "300"]
+gold = "src/app.py"
+
+[[task]]
+id = "map-focus-is-not-an-answer"
+kind = "map"
+args = ["--focus", "src/app.py", "--tokens", "300"]
+gold = "src/app.py"
+expect = "miss"
+'''
+        rc, out = self.run_eval(tasks, "--json")
+        self.assertEqual(rc, 0, out)
+        rows = {r["id"]: r for r in json.loads(out)["tasks"]}
+        self.assertEqual({i: r["status"] for i, r in rows.items()}, dict.fromkeys(rows, "ok"))
+        self.assertIsNotNone(rows["impact-router"]["rank"])
+        self.assertTrue(rows["impact-file"]["held"])  # the file asked about is not among its own answers
+        self.assertIsNotNone(rows["refs-router"]["rank"])
+        self.assertEqual(rows["map-focus"]["rank"], 1)
+        self.assertTrue(rows["map-focus-is-not-an-answer"]["held"])  # a file the task names is left out
+
     def test_stale_gold_exits_2(self) -> None:
         stale = TASKS.replace('gold = "src/app.py#Router"\n\n[[task]]\nid = "search-router"',
                               'gold = "src/app.py#Nope"\n\n[[task]]\nid = "search-router"')
@@ -331,6 +375,22 @@ class BenchNavTest(unittest.TestCase):
         self.assertEqual({r["case"]: r["check"] for r in rows},
                          {"hook-session": "ok", "hook-pre-read": "ok", "hook-post-edit": "ok",
                           "hook-post-edit-broken": "ok"})
+
+    def test_code_map_cases_find_the_changed_interface(self) -> None:
+        bench, synth = _load("bench_nav"), _load("synth_repo")
+        with tempfile.TemporaryDirectory(prefix="topomark-bench-test-") as tmp:
+            repo = Path(tmp) / "repo"
+            synth.generate(repo, files=40)
+            (Path(tmp) / "cache").mkdir()
+            env = bench._env(ROOT / "src", Path(tmp) / "cache")
+            rows = bench.bench_codemap(repo, env, 1, Path(tmp) / "codemap")
+            self.assertEqual(subprocess.run(["git", "-C", str(repo), "status", "--porcelain"], capture_output=True,
+                                            text=True, encoding="utf-8", check=True).stdout, "")  # --repo untouched
+        self.assertEqual({r["case"]: r["check"] for r in rows},
+                         {"check": "ok", "stale": "ok", "gen": "ok", "changes": "ok"})
+        self.assertIn("expected one STAMP_CHANGED", bench.codemap_problem("check", '{"problems": []}'))
+        big = json.dumps({"problems": [{"code": "STAMP_CHANGED", "subject": "py/core/"}]})  # a directory unit
+        self.assertEqual(bench.codemap_problem("check", big), "")
 
 
 if __name__ == "__main__":

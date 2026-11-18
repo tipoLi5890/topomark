@@ -15,12 +15,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import subprocess
 from pathlib import Path
 
 from .contract import STAMPS_VERSION
 from .errors import TopomarkError
-from .repo import git, write_text
+from .repo import git, safe_path, write_text
 
 
 def h16(text: str) -> str:
@@ -42,7 +43,7 @@ def blob_ids(root: Path, paths: list[str], write: bool = True) -> dict[str, str]
         return {}
     out = git(root, "hash-object", *(["-w"] if write else []), "--stdin-paths",
               input_text="\n".join(paths) + "\n").split()
-    return dict(zip(paths, out))
+    return dict(zip(paths, out, strict=False))
 
 
 def blob_text(root: Path, blob: str) -> str | None:
@@ -53,6 +54,27 @@ def blob_text(root: Path, blob: str) -> str | None:
     except (subprocess.CalledProcessError, OSError):
         return None
     return data.decode("utf-8", errors="replace").replace("\r\n", "\n")
+
+
+_BLOB_ID = re.compile(r"[0-9a-f]{40}([0-9a-f]{24})?")  # SHA-1 or SHA-256 object id
+
+
+def _check_shape(path: str, units: object, areas: object) -> None:
+    """stamps.json is repository content, so a hostile clone controls it. Its blob ids go to git as
+    arguments (``git diff <old> <new>``), where ``--output=<file>`` would be an option: accept only
+    object ids."""
+    if not isinstance(units, dict) or not isinstance(areas, dict):
+        raise TopomarkError("CONFIG", f"{path}: \"units\" and \"areas\" must be JSON objects")
+    for unit, rec in units.items():
+        if not isinstance(rec, dict):
+            raise TopomarkError("CONFIG", f"{path}: the stamp of {unit} must be a JSON object")
+        blobs = rec.get("blobs") or {}
+        if not isinstance(blobs, dict):
+            raise TopomarkError("CONFIG", f"{path}: \"blobs\" of {unit} must be a JSON object")
+        for f, blob in blobs.items():
+            if not isinstance(blob, str) or not _BLOB_ID.fullmatch(blob):
+                raise TopomarkError("CONFIG", f"{path}: the blob of {f} ({unit}) is not a git object id; "
+                                              "restore stamps.json from git or re-stamp the unit")
 
 
 class Stamps:
@@ -66,7 +88,7 @@ class Stamps:
         full = root / path
         if full.is_file():
             try:
-                with open(full, encoding="utf-8") as fh:
+                with open(safe_path(root, path), encoding="utf-8") as fh:  # REFUSED: a link out of the repository
                     data = json.load(fh)
             except ValueError as e:
                 raise TopomarkError("CONFIG", f"{path} is not valid JSON ({e}); resolve it by hand (merge "
@@ -77,6 +99,7 @@ class Stamps:
             if v == STAMPS_VERSION:
                 self.units = data.get("units", {})
                 self.areas = data.get("areas", {})
+                _check_shape(path, self.units, self.areas)
             else:
                 self.foreign_version = v
 

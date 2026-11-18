@@ -1,7 +1,7 @@
 {
   "name": "topomark",
   "version": "0.3.0",
-  "description": "A zero-dependency code map for AI coding agents: progressive-disclosure docs, per-file review stamps that catch stale summaries, and fast symbol/impact/test navigation for any repo.",
+  "description": "A zero-dependency code map for AI coding agents: progressive-disclosure docs, per-file review stamps that catch stale summaries, and fast symbol/impact/test navigation for git repositories.",
   "author": {
     "name": "Li, ching yu",
     "url": "https://github.com/tipoLi5890"
@@ -21,7 +21,7 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "topomark: a code map for AI coding agents",
-    "shortDescription": "Navigate any repo by symbol, impact and tests; keep a layered code map honest with review stamps.",
+    "shortDescription": "Navigate a git repository by symbol, impact and tests; keep a layered code map current with review stamps.",
     "longDescription": "Drives the zero-dependency `topomark` CLI: outline a file's symbols, print one symbol, find definitions and references, summarise the impact of a change, select the tests it needs, and build a ranked repo map in a token budget. Keeps a progressive-disclosure code map (an L0 index, one file per area, then the code) in sync with per-unit review stamps that fail `topomark check` when an interface changes without its summary being reviewed. Bundles one skill, `topomark`.",
     "developerName": "Li, ching yu",
     "category": "Developer Tools",

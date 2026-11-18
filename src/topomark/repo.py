@@ -28,8 +28,8 @@ import os
 import re
 import stat
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from .errors import TopomarkError
 
@@ -40,19 +40,26 @@ SECRET_PATTERNS: tuple[str, ...] = (
     "*secret*.json", "secrets.yaml", "secrets.yml", "*.secrets.yaml", "*.secrets.yml", "ssh-hosts.json",
     ".netrc", ".npmrc", ".pypirc", ".git-credentials", "service-account*.json", "*.tfvars", "*.tfvars.json",
     "kubeconfig*",
+    # environment files under other names, keys, password stores and tool credentials
+    ".envrc", "*.env", "id_dsa*", "*.ppk", "*.p8", "*.kdbx", ".pgpass", ".htpasswd", ".s3cfg", ".boto",
+    ".vault-token", ".dockercfg", "**/.docker/config.json", "**/.kube/config", "*.ovpn", "*.tfstate",
+    "*.tfstate.backup",
 )
 # Names that say "secret" about a data file but are ordinary names for source code
 # (`src/auth/credentials.py`, `src/keys/bindings.ts`): secret unless the file is source code.
 SECRET_NAME_PATTERNS: tuple[str, ...] = ("keys/", "credentials*")
 SOURCE_EXT: tuple[str, ...] = (
     ".py", ".pyi", ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts", ".cs", ".java", ".kt", ".kts",
-    ".swift", ".dart", ".go", ".rs", ".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".hh", ".m", ".mm",
+    ".swift", ".dart", ".go", ".rs", ".c", ".h", ".cc", ".cpp", ".cxx", ".c++", ".hpp", ".hh", ".hxx", ".h++",
+    ".inl", ".m", ".mm",
 )
+# Left out on purpose, though they have adapters: shell scripts and SQL (`keys/deploy.sh`,
+# `credentials.sql`) are where tokens and dumped rows are written down, so those names stay refused.
 
 DEFAULT_EXCLUDES: tuple[str, ...] = (
     ".git/", "node_modules/", ".venv*/", "venv/", "__pycache__/", "build/", "dist/",
-    ".tipo-harness/", "**/vendor/**", "**/generated/**", "*.generated.*", "*.min.js",
-    "*.min.css", "**/archive/**", "*.meta", ".topomark/",
+    "**/vendor/**", "**/generated/**", "*.generated.*", "*.min.js", "*.min.css",
+    "**/archive/**", "*.meta", ".topomark/",
 )
 
 
@@ -162,8 +169,14 @@ def find_root(start: str | os.PathLike[str] | None) -> Path:
 
 
 def git(root: Path, *args: str, input_text: str | None = None, check: bool = True) -> str:
-    return subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True,
-                          encoding="utf-8", errors="replace", input=input_text, check=check).stdout
+    """Run git in ``root``. ``core.fsmonitor`` in a repository's own .git/config names a program git
+    starts while it refreshes the index (``ls-files``, ``diff``); a repository handed over with its
+    .git (an archive, a shared folder) could run code through it, so it is switched off here.
+    The direct ``cat-file`` calls in this module and stamps.py read objects only and never refresh
+    the index. Clean filters still apply to ``hash-object`` (turning them off
+    would change the ids stamps.json records, git-lfs pointers among them); SECURITY.md says so."""
+    return subprocess.run(["git", "-C", str(root), "-c", "core.fsmonitor=false", *args], capture_output=True,
+                          text=True, encoding="utf-8", errors="replace", input=input_text, check=check).stdout
 
 
 def git_objects(root: Path, specs: list[str]) -> dict[str, str | None]:
@@ -331,11 +344,18 @@ def outside(path: str) -> bool:
 
 
 def write_text(root: Path, path: str, text: str) -> None:
+    """Write a file the command owns. The repository is not trusted: a symbolic link on the way (the
+    file itself, or a folder above it) that leads out of it is REFUSED, and so is a dangling link,
+    because ``mkdir`` and ``open`` would follow either and write somewhere else."""
     if _outside(path):
         raise TopomarkError("REFUSED", f"refusing to write outside the repository: {path}")
     full = root / path
+    if link_target(root, path) is None:
+        raise TopomarkError("REFUSED", f"refusing to write through a symbolic link out of the repository: {path}")
+    if os.path.islink(full) and not os.path.exists(full):
+        raise TopomarkError("REFUSED", f"refusing to write through a dangling symbolic link: {path}")
     full.parent.mkdir(parents=True, exist_ok=True)
-    if full.is_symlink():  # write through the link, as before; replacing would put a file in its place
+    if full.is_symlink():  # a link inside the repository: write through it; replacing would put a file in its place
         with open(full, "w", encoding="utf-8", newline="\n") as fh:
             fh.write(text)
         return

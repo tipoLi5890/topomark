@@ -2,25 +2,30 @@
 
 from __future__ import annotations
 
-from ..repo import write_text
+import argparse
+from typing import TYPE_CHECKING, Any
+
+from ..repo import read_text, write_text
 from . import Result
 from ._common import add
 
+if TYPE_CHECKING:
+    from ..context import Context
 
-def register(sub, common) -> None:
+
+def register(sub: Any, common: argparse.ArgumentParser) -> None:
     p = add(sub, common, "gen", "regenerate <docs_dir>/_generated/ (fan-in table, module graph)",
             "Rebuild the generated reports from the code. They are compared by `check`; never edit them by hand.")
     p.set_defaults(handler=run)
 
 
-def run(args, ctx) -> Result:
+def run(args: argparse.Namespace, ctx: Context) -> Result:
     from ..workspace import Workspace
 
     ws = Workspace(ctx)
     written = []
     for path, text in ws.generated().items():
-        full = ctx.root / path
-        old = full.read_text(encoding="utf-8") if full.is_file() else None
+        old = read_text(ctx.root, path) if (ctx.root / path).is_file() else None
         if old != text:
             write_text(ctx.root, path, text)
             written.append(path)

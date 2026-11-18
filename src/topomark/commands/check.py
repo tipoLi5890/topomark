@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import argparse
 from collections import Counter
+from typing import TYPE_CHECKING, Any
 
 from . import Result
 from ._common import add, format_problems
 
+if TYPE_CHECKING:
+    from ..context import Context
 
-def register(sub, common) -> None:
+
+def register(sub: Any, common: argparse.ArgumentParser) -> None:
     p = add(sub, common, "check", "verify the code map: coverage, dead paths, caps, fan-in, generated, stamps",
             "Fails (exit 1) when any required file or directory has no row in its area, a path in the docs\n"
             "does not exist, a doc is over its line cap, a fan-in number is stale, the generated reports are\n"
@@ -18,7 +23,7 @@ def register(sub, common) -> None:
     p.set_defaults(handler=run)
 
 
-def run(args, ctx) -> Result:
+def run(args: argparse.Namespace, ctx: Context) -> Result:
     from ..errors import TopomarkError
     from ..workspace import Workspace
 

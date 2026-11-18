@@ -7,9 +7,10 @@ from __future__ import annotations
 import json
 import re
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass
 from functools import cached_property
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any
 
 from . import docs as D
 from .context import Context
@@ -18,6 +19,9 @@ from .index import Index
 from .repo import git_objects
 from .lang import registry
 from .stamps import Stamps, blob_ids, blob_text, h16, unit_surface_hash
+
+if TYPE_CHECKING:
+    from .lang.base import FileInfo
 
 FAN_RX = re.compile(r"fan-in\s*(\d+)\s*/\s*(\d+)", re.I)
 ROW_RX = re.compile(r"^\|\s*`([^`]+)`[^|`]*\|")
@@ -54,7 +58,7 @@ class Workspace:
         return Index(self.ctx)
 
     @cached_property
-    def infos(self):
+    def infos(self) -> dict[str, FileInfo]:
         return self.index.all()
 
     @cached_property
@@ -109,7 +113,7 @@ class Workspace:
         old: dict[str, str] = rec.get("blobs") or {}
         if not old or set(old) != set(files):
             return True  # no record of what was reviewed, or files joined or left the unit
-        new = self._current_blobs(files)
+        new = self.current_blobs(files)
         for f in files:
             if old[f] == new.get(f):
                 continue  # the same content the reviewer saw
@@ -120,6 +124,13 @@ class Workspace:
                 return True
         return False
 
+    def stamp_state(self, unit: str) -> str:
+        """``none``, ``current`` or ``changed``: the one answer every command gives for a unit's
+        review stamp, so ``owner``, ``impact``, ``brief`` and ``changes`` agree with ``check``."""
+        if not self.stamps.units.get(unit):
+            return "none"
+        return "changed" if self.interface_changed(unit) else "current"
+
     def _prefetch_reviewed(self, units: list[str]) -> None:
         """Read, in two git processes for all of ``units``, what ``interface_changed`` will ask for:
         the blob ids of their files as they are, and the text of every reviewed blob that differs.
@@ -129,13 +140,15 @@ class Workspace:
         files = sorted({f for u in todo for f in self.units[u]["files"]})
         if not files:
             return
-        new = self._current_blobs(files)
+        new = self.current_blobs(files)
         want = sorted({b for u in todo for f, b in ((self.stamps.units[u].get("blobs") or {}).items())
                        if isinstance(b, str) and new.get(f) != b and b not in self._reviewed})
         if want:
             self._reviewed.update(git_objects(self.ctx.root, want))
 
-    def _current_blobs(self, files: list[str]) -> dict[str, str]:
+    def current_blobs(self, files: list[str]) -> dict[str, str]:
+        """git blob ids of ``files`` as they are now: computed, never stored (only ``stamp`` and
+        ``diff`` write objects), and asked of git once per file however many callers want them."""
         missing = [f for f in files if f not in self._blobs]
         if missing:
             self._blobs.update(blob_ids(self.ctx.root, missing, write=False))
@@ -151,17 +164,20 @@ class Workspace:
             test |= fi.test
         return len(prod - files), len(test - files)
 
-    def edges(self, area: str) -> list[str]:
-        rows = []
+    @cached_property
+    def _edges(self) -> dict[str, list[str]]:
+        """Every area's edge rows from one pass over the code files (not one pass per area)."""
+        rows: dict[str, list[str]] = defaultdict(list)
         for f in self.ctx.code_files:
             if f in self.graph.tests:
                 continue
-            if self.graph.area_of(f) != area:
-                continue
             cross = self.graph.cross_areas(f)
             if cross:
-                rows.append(f"{f} <- {', '.join(cross)}")
-        return sorted(rows)
+                rows[self.graph.area_of(f)].append(f"{f} <- {', '.join(cross)}")
+        return {area: sorted(r) for area, r in rows.items()}
+
+    def edges(self, area: str) -> list[str]:
+        return self._edges.get(area, [])
 
     def edges_hash(self, area: str) -> str:
         return h16("\n".join(self.edges(area)))
@@ -217,7 +233,9 @@ class Workspace:
             if f.endswith(".asmdef"):
                 try:
                     d = json.loads(self.ctx.read(f))
-                except ValueError:
+                except (ValueError, RecursionError):
+                    continue
+                if not isinstance(d, dict):
                     continue
                 asm[d.get("name", f)] = {"file": f, "refs": d.get("references", []),
                                          "noEngine": bool(d.get("noEngineReferences")),
@@ -227,10 +245,11 @@ class Workspace:
             if f.endswith("package.json") and "/node_modules/" not in f:
                 try:
                     d = json.loads(self.ctx.read(f))
-                except ValueError:
+                except (ValueError, RecursionError):
                     continue
                 if isinstance(d, dict) and d.get("name"):
-                    deps = {**d.get("dependencies", {}), **d.get("devDependencies", {})}
+                    deps = {k: 1 for key in ("dependencies", "devDependencies")
+                            if isinstance(d.get(key), dict) for k in d[key]}  # any shape: repository content
                     npm[d["name"]] = {"file": f, "deps": sorted(deps)}
         if not asm and not npm:
             return "\n".join(out + ["(no module manifests found)"]) + "\n"
@@ -288,9 +307,17 @@ class Workspace:
     def problems(self, only_area: str | None = None, include_stamps: bool = True) -> list[Problem]:
         cfg = self.cfg
         P: list[Problem] = []
+        a: D.Area | None  # an area to check, or the owner of a file (None: no area covers it)
+        k: int | str      # a slash's offset, then a frontmatter key
         by_name = {a.name: a for a in self.areas}
         targets = [a for a in self.areas if not only_area or a.name == only_area]
         all_set = set(self.ctx.all_files)
+        all_dirs: set[str] = set()  # every directory that holds a file, with its slash: `src/`, `src/app/`
+        for f in all_set:
+            k = f.rfind("/")
+            while k > 0 and f[:k + 1] not in all_dirs:
+                all_dirs.add(f[:k + 1])
+                k = f.rfind("/", 0, k)
         top_dirs = {f.split("/")[0] for f in self.ctx.all_files if "/" in f}
         top_files = {f for f in self.ctx.all_files if "/" not in f}
         l0 = f"{cfg.docs_dir}/README.md"
@@ -305,7 +332,7 @@ class Workspace:
                 P.append(Problem("FRONTMATTER", a.file, f"granularity must be file or dir, not {a.granularity!r}"))
             for s in a.scope:
                 if s.endswith("/"):
-                    if not any(f.startswith(s) for f in self.ctx.all_files):
+                    if s not in all_dirs:
                         P.append(Problem("FRONTMATTER", a.file, f"scope {s} contains no files"))
                 elif s not in all_set:
                     P.append(Problem("FRONTMATTER", a.file, f"scope {s} does not exist"))
@@ -341,15 +368,15 @@ class Workspace:
                 if any(ch in ref for ch in "*<{"):
                     continue
                 if ref.endswith("/"):
-                    if not any(f.startswith(ref) for f in self.ctx.all_files):
+                    if ref not in all_dirs:
                         P.append(Problem("DEAD_PATH", path, f"directory `{ref}` does not exist", ref))
-                elif ref not in all_set and not any(f.startswith(ref + "/") for f in self.ctx.all_files):
+                elif ref not in all_set and ref + "/" not in all_dirs:
                     P.append(Problem("DEAD_PATH", path, f"path `{ref}` does not exist", ref))
             cap = cfg.l0_max if path == l0 else cfg.l1_max
             n = text.count("\n")
             if n > cap:
                 P.append(Problem("LINE_CAP", path, f"{n} lines, over the cap of {cap}"))
-            for i, subject, old, now in self.fan_mismatches(text):
+            for _, subject, old, now in self.fan_mismatches(text):
                 P.append(Problem("FANIN_STALE", path, f"`{subject}` says fan-in {old[0]}/{old[1]}, now "
                                                        f"{now[0]}/{now[1]} (run `topomark sync`)", subject))
 

@@ -138,6 +138,8 @@ class LocateTraceTest(unittest.TestCase):
         self.assertEqual(self.frames("panic: x\n\ngoroutine 1 [running]:\nmain.main()\n\t/home/u/proj/svc/main.go:4 +0x1d\n"
                                      "main.helper()\n\t/home/u/proj/svc/main.go:8 +0x11\n"),
                          [("svc/main.go", 4, "main"), ("svc/main.go", 8, "helper")])
+        self.assertEqual(self.frames("goroutine 1 [running]:\nmain.main()\n\tC:/Users/u/proj/svc/main.go:4 +0x1d\n"),
+                         [("svc/main.go", 4, "main")])  # a drive letter is part of the path, not the line separator
         self.assertEqual(self.frames("thread 'main' panicked at crate/src/lib.rs:3:5:\nindex out of bounds\n"),
                          [("crate/src/lib.rs", 3, "run")])
         self.assertEqual(self.frames("#0      main (package:app/main.dart:3:3)\n#1      _start (dart:isolate-patch/x.dart:1:1)\n"),

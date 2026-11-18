@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+import argparse
+from typing import TYPE_CHECKING, Any
+
 from . import Result
 from ._common import add, rel
 
+if TYPE_CHECKING:
+    from ..context import Context
 
-def register(sub, common) -> None:
+
+def register(sub: Any, common: argparse.ArgumentParser) -> None:
     p = add(sub, common, "syntax", "check that edited files still parse: Python, JSON, TOML exactly; brackets elsewhere",
             "Python with ast.parse, JSON with json.loads (comments and trailing commas allowed when that is\n"
             "what makes it parse), TOML with tomllib. JS/TS, C#, Java, Kotlin, Swift, Dart, Go, Rust and\n"
@@ -20,7 +26,7 @@ def register(sub, common) -> None:
     p.set_defaults(handler=run)
 
 
-def run(args, ctx) -> Result:
+def run(args: argparse.Namespace, ctx: Context) -> Result:
     from .. import syntax as X
     from ..errors import TopomarkError
     from ..navigate import changed_files

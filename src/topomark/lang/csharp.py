@@ -248,6 +248,11 @@ class Java(CSharp):
     syntax = Syntax(line_comments=("//",), block_comments=(("/*", "*/"),), quotes=('"', "'"),
                     triple_quotes=('"""',), char_literals_only=True)
 
+    def imports_of(self, masked: Masked) -> list[str]:
+        from ._imports import jvm_imports
+
+        return jvm_imports(masked.text, masked.original)
+
 
 def _first_declarator(lhs: str) -> str:
     """``lhs`` up to the comma that starts a second declarator (``int a, b``); a comma inside type

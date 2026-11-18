@@ -3,14 +3,22 @@ several files or a directory at once, top level only, within a token budget."""
 
 from __future__ import annotations
 
+import argparse
+from typing import TYPE_CHECKING, Any
+
 from . import Result
 from ._common import add, rel
+
+if TYPE_CHECKING:
+    from ..context import Context
+    from ..lang.base import FileInfo
+    from ..navigate import Nav
 
 
 MULTI_TOKENS = 2000  # default budget when several files are outlined
 
 
-def register(sub, common) -> None:
+def register(sub: Any, common: argparse.ArgumentParser) -> None:
     p = add(sub, common, "outline", "list a file's symbols with line ranges, kinds, signatures and doc summaries",
             "Every declaration a reader navigates to (types, members, top-level functions, constants),\n"
             "nested by container, with 1-based inclusive line ranges. The range includes leading doc\n"
@@ -31,7 +39,8 @@ def register(sub, common) -> None:
     p.set_defaults(handler=run)
 
 
-def _outline(info, path: str, args, depth: int | None, header_lines: int = 3) -> tuple[dict, list[str]]:
+def _outline(info: FileInfo, path: str, args: argparse.Namespace, depth: int | None,
+             header_lines: int = 3) -> tuple[dict, list[str]]:
     """The JSON object and text lines of one file's outline."""
     from ..navigate import clip, depth_of
 
@@ -74,7 +83,7 @@ def _outline(info, path: str, args, depth: int | None, header_lines: int = 3) ->
     return data, lines
 
 
-def _targets(nav, ctx, raw_paths: list[str]) -> tuple[list[str], bool]:
+def _targets(nav: Nav, ctx: Context, raw_paths: list[str]) -> tuple[list[str], bool]:
     """The files to outline, and whether a directory was expanded."""
     from ..errors import TopomarkError
     from ..lang import registry
@@ -98,7 +107,7 @@ def _targets(nav, ctx, raw_paths: list[str]) -> tuple[list[str], bool]:
     return out, expanded
 
 
-def run(args, ctx) -> Result:
+def run(args: argparse.Namespace, ctx: Context) -> Result:
     from ..errors import TopomarkError
     from ..navigate import Nav, estimate_tokens
 

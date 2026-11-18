@@ -4,7 +4,7 @@ All of these are read-only and work in any git repo, with or without a code map.
 with built-in language adapters (Python, JavaScript and TypeScript with JSX/TSX, C#, Java, Kotlin,
 Swift, Dart, Go, Rust, C, C++ and Objective-C, shell, SQL, data files such as JSON, TOML and YAML,
 and Markdown; plain text otherwise) and cache the results outside the repo (`$TOPOMARK_CACHE`, else
-`$XDG_CACHE_HOME/topomark`, else `~/.cache/topomark`).
+`$XDG_CACHE_HOME/topomark`, on Windows `%LOCALAPPDATA%\topomark\Cache`, else `~/.cache/topomark`).
 
 ## Which one?
 
@@ -61,7 +61,7 @@ topomark symbol src/app/server.py#Server --skeleton
 Prints the symbol's lines with line numbers. `file#Outer.Inner` selects a nested member. A bare
 name searches the repo; a name declared in several files lists the candidates and exits 4, so add
 the file. Overloads in one file are all printed. `--signature` prints the signature and doc summary
-only: the cheapest way to learn how to call something.
+only: usually the shortest way to learn how to call something.
 
 `--skeleton` keeps every declaration line and replaces the bodies of the innermost members (or the
 symbol's own body when it has no members) with `… (lines A-B)`, ready for a ranged read. A Python
@@ -102,8 +102,7 @@ leads to), code above Markdown and data files, symbols that match more of
 the query's words above those that match fewer. No PageRank and no randomness: the same query on the
 same tree gives the same list. Output is capped at `--limit` (default 15) or `--tokens`, with a count
 of what was left out; there is no second page. **Give two to five keywords**, the words the code
-would use, not a pasted issue: every extra word dilutes the ranking. For a name fragment, `find` is
-faster and exact. JSON: `terms`, `total`, `files`, `shown`, `truncated`, `results` (`path`,
+would use, not a pasted issue: extra words dilute the ranking. For a name fragment, `find` is exact. JSON: `terms`, `total`, `files`, `shown`, `truncated`, `results` (`path`,
 `qualname`, `kind`, `start`, `end`, `signature`, `score`, `group`, `matched`, `via`). The index is
 cached and rebuilt when a parsed file or the code map changes.
 
@@ -161,9 +160,10 @@ topomark impact Router.add --top 20
 ```
 
 For a file: what it declares, fan-in (production and test files that mention those names), the
-files that import it (`importers`: Python and JS/TS import statements resolved to repo files,
+files that import it (`importers`: import statements resolved to repo files. Python and JS/TS,
 including relative imports, `src/` layouts, `.js` written for `.ts`, `index` files and `@/` or `~/`
-aliases), cross-area callers, owning area, review-stamp state, tests that mention it, and docs that
+aliases; C-family `#include "x.h"`; Dart; Go import paths inside the module; Rust `mod` and
+`crate::` paths; Java and Kotlin. C# and Swift name namespaces, not files: none there), cross-area callers, owning area, review-stamp state, tests that mention it, and docs that
 mention its path. For a symbol: definitions, references by area, tests that use it, and mentions in
 docs. Run it before editing anything with a fan-in above a handful.
 
@@ -207,7 +207,7 @@ declare → test files that mention those names → the test methods whose bodie
 files are selected whole.
 
 A production file that no test mentions is followed to its callers, up to `--depth` hops (default
-2; `0` turns this off): files that import it (Python and JS/TS import statements, transitively) and,
+2; `0` turns this off): files that import it (import statements resolved to repo files, transitively; not C# or Swift) and,
 one hop only, files that use a distinctive name it declares. Test files that import a reached file
 are selected whole; tests that mention a caller's names are selected by method. Either way the
 result says `via <caller>` (JSON: `via`, the chain of files from the change to the test). Barrels

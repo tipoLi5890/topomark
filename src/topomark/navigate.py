@@ -28,6 +28,7 @@ import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from functools import cached_property
+from typing import TYPE_CHECKING
 
 from . import repo
 from .contract import estimate_tokens as estimate_tokens
@@ -38,6 +39,10 @@ from .lang.base import DYNAMIC, FileInfo, Symbol
 from .lang.scan import Masked
 from .masking import NON_CODE_LANGS, mask_file, word_rx
 from .workspace import Workspace
+
+if TYPE_CHECKING:
+    from .context import Context
+    from .graph import Graph
 
 MENTION_EXT = (".md", ".markdown", ".txt", ".rst", ".adoc", ".html", ".json", ".jsonc", ".yaml", ".yml", ".toml")
 LINE_MAX = 160
@@ -69,8 +74,11 @@ class Site:
         return {"path": self.path, "line": self.line, "text": self.text, "test": self.test, "group": self.group}
 
 
+MENTION_MAX_BYTES = 1_000_000  # a larger doc is not scanned for mentions
+
+
 class Nav:
-    def __init__(self, ctx) -> None:
+    def __init__(self, ctx: Context) -> None:
         self.ctx = ctx
         self.cfg = ctx.config
         self.ws = Workspace(ctx)
@@ -83,7 +91,7 @@ class Nav:
         return self.ws.infos
 
     @property
-    def graph(self):
+    def graph(self) -> Graph:
         return self.ws.graph
 
     def exists(self, path: str) -> bool:
@@ -133,8 +141,12 @@ class Nav:
                 return a.name
         return path.split("/", 1)[0] + "/" if "/" in path else "."
 
+    @cached_property
+    def _area_names(self) -> frozenset[str]:
+        return frozenset(a.name for a in self.ws.areas)
+
     def in_area(self, path: str, area: str) -> bool:
-        if self.ws.areas and area in {a.name for a in self.ws.areas}:
+        if area in self._area_names:
             a, _ = owner_of(path, self.ws.areas)
             return bool(a and a.name == area)
         prefix = area.rstrip("/") + "/"
@@ -176,6 +188,7 @@ class Nav:
     def resolve(self, spec: str) -> tuple[list[tuple[str, Symbol]], list[tuple[str, Symbol]]]:
         """``file#Name`` or ``Name`` → (matches, candidates). ``matches`` is empty and
         ``candidates`` set when a bare name is declared in more than one file."""
+        found: list[Symbol] | list[tuple[str, Symbol]]  # one file's symbols, then (path, symbol) repo-wide
         if "#" in spec:
             path, name = spec.split("#", 1)
             path = repo.user_path(self.ctx.root, path)
@@ -244,6 +257,20 @@ class Nav:
         return out
 
     # ---------------------------------------------------------------- mentions in docs
+    @cached_property
+    def _mention_texts(self) -> dict[str, list[str]]:
+        """The lines of every doc and contract file, read once: ``changes`` asks about a dozen
+        symbols, twice each, and read them all again every time."""
+        out: dict[str, list[str]] = {}
+        for f in self.mention_files():
+            try:
+                if (self.ctx.root / f).stat().st_size > MENTION_MAX_BYTES:
+                    continue
+                out[f] = self.ctx.read(f).split("\n")
+            except (OSError, TopomarkError):
+                continue
+        return out
+
     def mention_files(self) -> list[str]:
         roots = list(self.cfg.mention_roots) + [self.cfg.docs_prefix] + list(self.cfg.every_file_roots)
         seen = []
@@ -252,20 +279,12 @@ class Nav:
                 seen.append(f)
         return seen
 
-    def mentions(self, needle: str, limit_bytes: int = 1_000_000) -> list[Site]:
+    def mentions(self, needle: str) -> list[Site]:
         """Backtick or word matches of ``needle`` in docs and contract files (raw text)."""
         rx = word_rx(needle) if re.fullmatch(r"[A-Za-z0-9_.]+", needle) else re.compile(re.escape(needle))
         out = []
-        for f in self.mention_files():
-            try:
-                if (self.ctx.root / f).stat().st_size > limit_bytes:
-                    continue
-                text = self.ctx.read(f)
-            except (OSError, TopomarkError):
-                continue
-            if needle not in text:
-                continue
-            for i, ln in enumerate(text.split("\n")):
+        for f, lines in self._mention_texts.items():
+            for i, ln in enumerate(lines):
                 if needle in ln and rx.search(ln):
                     out.append(Site(f, i + 1, clip(ln), False, self.group_of(f)))
         return out
@@ -285,7 +304,7 @@ class Nav:
     # ---------------------------------------------------------------- import edges
     @cached_property
     def import_edges(self) -> dict[str, list[str]]:
-        """importer → the repo files its imports resolve to (Python and JS/TS)."""
+        """importer → the repo files its imports resolve to (``imports.ImportResolver`` lists the languages)."""
         return self.ws.derived("imports", "", lambda: resolve_imports(self.infos))
 
     @cached_property
@@ -424,8 +443,7 @@ def impact_file(nav: Nav, path: str, top: int = 10) -> dict:
     unit = unit_of(path, a) if a else None
     stamp = None
     if unit and unit in ws.units:
-        rec = ws.stamps.units.get(unit)
-        stamp = "none" if not rec else ("current" if rec.get("surface") == ws.unit_hash(unit) else "changed")
+        stamp = ws.stamp_state(unit)
     base = path.rsplit("/", 1)[-1]
     mentions = [m for m in nav.mentions(base) if m.path != path]
     mention_files = sorted({m.path for m in mentions})
@@ -485,30 +503,33 @@ def code_map_row(nav: Nav, path: str) -> dict:
     unit = unit_of(path, a)
     stamp = None
     if unit in ws.units:
-        rec = ws.stamps.units.get(unit)
-        stamp = "none" if not rec else ("current" if rec.get("surface") == ws.unit_hash(unit) else "changed")
+        stamp = ws.stamp_state(unit)
     row = next((ln.strip() for ln in a.text.split("\n") if ln.lstrip().startswith("|") and f"`{unit}`" in ln), None)
     return {"name": a.name, "file": a.file, "unit": unit, "stamp": stamp, "row": row, "code_map": True}
 
 
 # ---------------------------------------------------------------- git
-def changed_files(ctx, staged: bool = False, since: str | None = None) -> list[str]:
+def changed_files(ctx: Context, staged: bool = False, since: str | None = None, has_head: bool | None = None,
+                  since_checked: bool = False) -> list[str]:
     """Repo paths that differ from HEAD (or the index, or ``since``), untracked files included
     unless ``staged``. NUL-separated git output, so unusual names come back as they are.
-    An unknown ``since`` is NOT_FOUND."""
+    An unknown ``since`` is NOT_FOUND. A caller that already asked git whether ``since`` or HEAD
+    exists says so (``since_checked``, ``has_head``) and saves the second ``rev-parse``."""
     root = ctx.root
 
     def names(cmd: str, *args: str) -> list[str]:
         return repo.git(root, cmd, "-z", *args, check=False).split("\0")
 
     if since:
-        if not repo.git(root, "rev-parse", "--verify", "-q", f"{since}^{{commit}}", check=False).strip():
+        if not since_checked and not repo.git(root, "rev-parse", "--verify", "-q", f"{since}^{{commit}}",
+                                              check=False).strip():
             raise TopomarkError("NOT_FOUND", f"unknown revision: {since}")
         out = names("diff", "--name-only", since)
     elif staged:
         out = names("diff", "--name-only", "--cached")
     else:
-        head_ok = repo.git(root, "rev-parse", "--verify", "-q", "HEAD", check=False).strip()
+        head_ok = (repo.git(root, "rev-parse", "--verify", "-q", "HEAD", check=False).strip()
+                   if has_head is None else has_head)
         out = names("diff", "--name-only", "HEAD") if head_ok else names("ls-files")
     if not staged:
         out += names("ls-files", "--others", "--exclude-standard")

@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+import argparse
+from typing import TYPE_CHECKING, Any
+
 from . import Result
 from ._common import add, rel
 
+if TYPE_CHECKING:
+    from ..context import Context
 
-def register(sub, common) -> None:
+
+def register(sub: Any, common: argparse.ArgumentParser) -> None:
     p = add(sub, common, "stamp", "record a review: these rows still describe their code",
             "A stamp says a human or agent looked at the row. Stamp a unit after reading `topomark diff` and\n"
             "updating its row; don't stamp to make `check` green.",
@@ -26,7 +32,7 @@ def register(sub, common) -> None:
     p.set_defaults(handler=run)
 
 
-def run(args, ctx) -> Result:
+def run(args: argparse.Namespace, ctx: Context) -> Result:
     from ..errors import TopomarkError
     from ..stamps import blob_ids
     from ..workspace import Workspace

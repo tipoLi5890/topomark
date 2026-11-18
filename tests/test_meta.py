@@ -1,6 +1,6 @@
 """Repository-wide contracts: every command is registered and described, every --json
 output carries schema_version, text I/O in src/ is explicit about encoding and
-newlines, docs only show commands the parser accepts, the zh-Hant README has no dashes."""
+newlines, docs only show commands the parser accepts, the translated READMEs have no dashes and link each other."""
 
 from __future__ import annotations
 
@@ -22,6 +22,7 @@ from tests.harness import TempRepo, run_cli
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src" / "topomark"
+TRANSLATED_READMES = [ROOT / ".github" / f"README.{lang}.md" for lang in ("zh-Hant", "zh-Hans", "ja")]
 
 
 def _subparsers(parser: argparse.ArgumentParser) -> dict[str, argparse.ArgumentParser]:
@@ -46,7 +47,7 @@ class CommandRegistryTest(unittest.TestCase):
         on_disk = sorted(p.stem for p in (SRC / "commands").glob("*.py") if not p.stem.startswith("_"))
         self.assertEqual(sorted(_NAMES), on_disk, "a command module is missing from commands._NAMES (or the reverse)")
         subs = _registered()
-        for name, mod in zip(_NAMES, modules):
+        for name, mod in zip(_NAMES, modules, strict=True):
             with self.subTest(command=name):
                 self.assertTrue(callable(getattr(mod, "register", None)), f"{name}: no register()")
                 self.assertTrue(callable(getattr(mod, "run", None)), f"{name}: no run()")
@@ -190,7 +191,7 @@ class TextIoTest(unittest.TestCase):
 
 
 def _doc_files() -> list[Path]:
-    out = [ROOT / "README.md", ROOT / "CLAUDE.md", ROOT / "CONTRIBUTING.md", ROOT / ".github" / "README.zh-Hant.md"]
+    out = [ROOT / "README.md", ROOT / "CLAUDE.md", ROOT / "CONTRIBUTING.md", *TRANSLATED_READMES]
     for base in ("docs", "skills", "src/topomark/templates"):
         out += sorted((ROOT / base).rglob("*.md"))
     return [p for p in out if p.is_file()]
@@ -250,9 +251,56 @@ class DocsConformanceTest(unittest.TestCase):
         self.assertEqual(unknown, set(), f"docs mention commands that are not registered: {sorted(unknown)}")
 
 
-class ZhHantStyleTest(unittest.TestCase):
-    def test_no_dashes_in_zh_hant_readme(self) -> None:
-        self.assertNotIn("—", (ROOT / ".github" / "README.zh-Hant.md").read_text(encoding="utf-8"))
+class OneCommandParserTest(unittest.TestCase):
+    """The CLI builds the parser of the command it was given only (every plugin hook pays for the
+    rest otherwise), and that must never change what a command line means."""
+
+    def test_the_command_word_is_found_only_behind_spelled_out_global_flags(self) -> None:
+        from topomark.cli import _command_in
+
+        for argv, want in ((["check"], "check"), (["-C", "x", "--json", "-vv", "owner", "a.py"], "owner"),
+                           (["--repo=x", "--config", "c.toml", "-q", "tests-for"], "tests-for"),
+                           (["-Cx", "map"], "map"), (["--version"], None), ([], None),
+                           (["--help", "check"], None), (["-h"], None), (["--", "check"], None),
+                           (["--rep", "check", "outline"], None), (["--unknown", "check"], None)):
+            with self.subTest(argv=argv):
+                self.assertEqual(_command_in(argv), want)
+
+    def test_one_command_parses_like_the_whole_parser(self) -> None:
+        from topomark.cli import build_parser
+
+        whole = build_parser()
+        for name in _registered():
+            with self.subTest(command=name):
+                one = _subparsers(build_parser(name))
+                self.assertEqual(list(one), [name])
+                self.assertEqual(one[name].format_help(), _subparsers(whole)[name].format_help())
+        for word in ("tests_for", "agent_hook", "nonsense", "_common"):
+            with self.subTest(word=word):  # not a command as typed: argparse reports every choice
+                self.assertEqual(list(_subparsers(build_parser(word))), list(_subparsers(whole)))
+
+    def test_a_hook_call_imports_one_command_module(self) -> None:
+        code = ("import sys; from topomark.cli import main; main(['agent-hook', 'pre-read']); "
+                "print(sorted(m for m in sys.modules if m.startswith('topomark.commands.')))")
+        out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, encoding="utf-8",
+                             input="{}", env={**os.environ, "PYTHONPATH": str(SRC.parent)}, check=True).stdout
+        self.assertEqual(out.strip().splitlines()[-1], "['topomark.commands._common', 'topomark.commands.agent_hook']")
+
+
+class TranslatedReadmeTest(unittest.TestCase):
+    def test_no_dashes(self) -> None:
+        for path in TRANSLATED_READMES:
+            with self.subTest(path=path.name):
+                self.assertNotIn("—", path.read_text(encoding="utf-8"))
+
+    def test_each_links_the_others(self) -> None:
+        names = ["README.md", *(p.name for p in TRANSLATED_READMES)]
+        for path in [ROOT / "README.md", *TRANSLATED_READMES]:
+            text = path.read_text(encoding="utf-8")
+            with self.subTest(path=path.name):
+                for other in names:
+                    if other != path.name:
+                        self.assertIn(f"{other})", text, f"{path.name} does not link {other}")
 
 
 class TemplatesTest(unittest.TestCase):

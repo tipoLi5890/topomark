@@ -25,6 +25,19 @@ class Result:
     exit: int = 0
 
 
+def command_module(cli_name: str) -> ModuleType | None:
+    """The one module behind a command as typed (``tests-for`` → ``tests_for``), or None.
+
+    Importing all of ``COMMAND_MODULES`` costs every call about 45 ms; a plugin hook runs on every
+    Read and Edit, so the CLI loads only the command it was given."""
+    name = cli_name.replace("-", "_")
+    if "_" in cli_name or name not in _NAMES:
+        return None
+    import importlib
+
+    return importlib.import_module(f"{__name__}.{name}")
+
+
 def COMMAND_MODULES() -> list[ModuleType]:  # noqa: N802 - reads like a constant at call sites
     # Written out (not computed from _NAMES) so `impact` and `tests-for` see who loads each command;
     # tests/test_meta.py checks this list against _NAMES. Inside the function: the modules import Result.

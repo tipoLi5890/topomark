@@ -1,7 +1,8 @@
 """Per-file analysis with an on-disk cache outside the repo.
 
 The cache lives in the user's cache directory (``$TOPOMARK_CACHE``, else
-``$XDG_CACHE_HOME/topomark``, else ``~/.cache/topomark``), one folder per repo
+``$XDG_CACHE_HOME/topomark``, on Windows ``%LOCALAPPDATA%/topomark/Cache``, else
+``~/.cache/topomark``), one folder per repo
 root, so topomark never writes into the repositories it maps. Entries are keyed
 by ``(mtime_ns, size)`` and spread over ``SHARDS`` ``marshal`` files by a hash of
 the path: a single-file command (``outline``, ``symbol file#Name``) reads one small
@@ -18,6 +19,10 @@ all ``(path, key)`` pairs plus a fingerprint of the modules that build them
 edit to that code never serves tables the old code built. ``graph.partial_names`` is
 packed into each file's entry instead: a change to it needs a ``CACHE_FORMAT`` bump.
 
+A whole-repo command that finds ``PARALLEL_MIN`` or more files to parse (a first run, or the
+run after an upgrade) parses them in worker processes (``$TOPOMARK_JOBS``; 1 means in this
+process), and in this process when workers cannot be started. A single file never starts one.
+
 Files larger than ``MAX_BYTES`` are listed but not parsed (no symbols); their
 surface is the SHA-256 of their content so stamps still notice changes.
 """
@@ -32,17 +37,23 @@ import shutil
 import sys
 import time
 import zlib
+from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any
 
 from . import __version__, repo
 from .errors import TopomarkError
 from .lang import registry
 from .lang.base import FileInfo, Symbol
 
+if TYPE_CHECKING:
+    from .context import Context
+
 MAX_BYTES = 3 * 1024 * 1024
 CACHE_FORMAT = 3
 SHARDS = 256
+PARALLEL_MIN = 600    # files to parse before worker processes pay for starting (each imports the adapters)
+MAX_JOBS = 8
 KEEP_DAYS = 14        # an index another version or interpreter wrote stays this long after its last use
 KEEP_REPO_DAYS = 90   # a repository's whole cache folder, after the last use of any index in it
 _DAY = 86400.0
@@ -80,13 +91,21 @@ def _derived_fingerprint() -> str:
     return _DERIVED_FP[0]
 
 
+def cache_base(env: Mapping[str, str], windows: bool) -> str:
+    """Where the cache folders of all repositories live, as the first of these that is set:
+    ``$TOPOMARK_CACHE``, ``$XDG_CACHE_HOME/topomark``, on Windows ``%LOCALAPPDATA%/topomark/Cache``
+    (where Windows keeps data a program can rebuild), else ``~/.cache/topomark``."""
+    if env.get("TOPOMARK_CACHE"):
+        return env["TOPOMARK_CACHE"]
+    if env.get("XDG_CACHE_HOME"):
+        return os.path.join(env["XDG_CACHE_HOME"], "topomark")
+    if windows and env.get("LOCALAPPDATA"):
+        return os.path.join(env["LOCALAPPDATA"], "topomark", "Cache")
+    return os.path.join(os.path.expanduser("~"), ".cache", "topomark")
+
+
 def cache_dir(root: Path) -> Path:
-    base = os.environ.get("TOPOMARK_CACHE")
-    if base:
-        d = Path(base)
-    else:
-        xdg = os.environ.get("XDG_CACHE_HOME")
-        d = Path(xdg) / "topomark" if xdg else Path.home() / ".cache" / "topomark"
+    d = Path(cache_base(os.environ, os.name == "nt"))
     return d / hashlib.sha256(str(root.resolve()).encode()).hexdigest()[:16]
 
 
@@ -106,9 +125,30 @@ def _pack(info: FileInfo) -> tuple:
             " ".join(sorted(info.idents)), info.surface, partial_names(info), info.degraded)
 
 
+def _jobs() -> int:
+    """Worker processes for a cold whole-repo parse: ``$TOPOMARK_JOBS``, else the CPUs up to ``MAX_JOBS``."""
+    raw = os.environ.get("TOPOMARK_JOBS", "")
+    if raw.isdigit():
+        return max(1, int(raw))
+    return max(1, min(MAX_JOBS, os.cpu_count() or 1))
+
+
+def _parse_packed(job: tuple[str, str]) -> tuple[str, int, int, tuple] | None:
+    """In a worker: one file's cache entry, or None for a file the parent should look at itself
+    (unreadable, refused, or too large to parse)."""
+    root, path = job
+    try:
+        st = (Path(root) / path).stat()
+        if st.st_size > MAX_BYTES:
+            return None
+        return path, st.st_mtime_ns, st.st_size, _pack(registry.analyze(path, repo.read_text(Path(root), path)))
+    except (OSError, TopomarkError):
+        return None
+
+
 def _symbol(t: tuple) -> Symbol:
     s = object.__new__(Symbol)
-    s.__dict__.update(zip(_SYMBOL_FIELDS, t))
+    s.__dict__.update(zip(_SYMBOL_FIELDS, t, strict=False))
     return s
 
 
@@ -135,7 +175,7 @@ class CachedInfo(FileInfo):
             self._tuples = marshal.loads(self._blob)
         return self._tuples
 
-    @property  # type: ignore[override]
+    @property
     def symbols(self) -> list[Symbol]:
         if self._symbols is None:
             self._symbols = [_symbol(t) for t in self.symbol_tuples]
@@ -145,7 +185,7 @@ class CachedInfo(FileInfo):
     def symbols(self, value: list[Symbol]) -> None:
         self._symbols = value
 
-    @property  # type: ignore[override]
+    @property
     def idents(self) -> set[str]:
         if self._idents is None:
             self._idents = set(self._ident_text.split())
@@ -203,7 +243,7 @@ def _sweep(base: Path, keep: Path) -> None:
 
 
 class Index:
-    def __init__(self, ctx, use_cache: bool = True) -> None:
+    def __init__(self, ctx: Context, use_cache: bool = True) -> None:
         self.ctx = ctx
         self.root: Path = ctx.root
         self._base = cache_dir(self.root)
@@ -211,6 +251,7 @@ class Index:
         self._use_cache = use_cache
         self._infos: dict[str, FileInfo] = {}
         self._keys: dict[str, tuple[int, int]] = {}
+        self._stats: dict[str, os.stat_result] = {}  # read by `_missing`, used once by `info`
         self._shards: dict[int, dict] = {}
         self._dirty: set[int] = set()
         # what this process changed in each dirty shard: save() merges only that into the file, so
@@ -263,8 +304,7 @@ class Index:
             return self._infos[path]
         if repo.is_secret(path):
             raise TopomarkError("REFUSED", f"refusing to read a secret-looking file: {path}")
-        full = self.root / path
-        st = full.stat()
+        st = self._stats.pop(path, None) or (self.root / path).stat()
         key = (st.st_mtime_ns, st.st_size)
         k = shard_of(path)
         sh = self._shard(k)
@@ -286,10 +326,59 @@ class Index:
         self._keys[path] = key
         return info
 
+    def _missing(self, paths: list[str]) -> list[str]:
+        """The files of ``paths`` that have no current cache entry (what a serial run would parse)."""
+        todo = []
+        for p in paths:
+            if p in self._infos or repo.is_secret(p):
+                continue
+            try:
+                st = (self.root / p).stat()
+            except OSError:
+                continue
+            self._stats[p] = st  # a whole-repo run stats each file once, not twice
+            hit = self._shard(shard_of(p)).get(p)
+            if (hit is None or hit[0] != st.st_mtime_ns or hit[1] != st.st_size) and st.st_size <= MAX_BYTES:
+                todo.append(p)
+        return todo
+
+    def _parse_in_workers(self, paths: list[str]) -> None:
+        """Fill the shards for ``paths`` from worker processes; ``info`` then finds them cached.
+        Whatever keeps workers from starting (no semaphores in a sandbox, a frozen interpreter)
+        leaves the shards as they were, and the files are parsed in this process as before."""
+        jobs = min(_jobs(), len(paths) // (PARALLEL_MIN // 4) or 1)
+        if jobs < 2:
+            return
+        try:
+            from concurrent.futures import ProcessPoolExecutor
+            from concurrent.futures.process import BrokenProcessPool
+        except ImportError:
+            return
+        root = str(self.root)
+        try:
+            with ProcessPoolExecutor(max_workers=jobs) as pool:
+                done = list(pool.map(_parse_packed, [(root, p) for p in paths],
+                                     chunksize=max(1, len(paths) // (jobs * 8))))
+        except (OSError, ImportError, NotImplementedError, BrokenProcessPool):
+            return
+        for entry in done:
+            if entry is None:
+                continue
+            path, mtime, size, packed = entry
+            k = shard_of(path)
+            self._shard(k)[path] = (mtime, size, packed)
+            self._dirty.add(k)
+            self._written.setdefault(k, set()).add(path)
+
     def all(self, paths: list[str] | None = None) -> dict[str, FileInfo]:
         full_scan = paths is None
         out = {}
-        for p in paths if paths is not None else self.ctx.code_files:
+        wanted = paths if paths is not None else self.ctx.code_files
+        if len(wanted) >= PARALLEL_MIN and _jobs() > 1:
+            todo = self._missing(wanted)
+            if len(todo) >= PARALLEL_MIN:
+                self._parse_in_workers(todo)
+        for p in wanted:
             try:
                 out[p] = self.info(p)
             except (OSError, TopomarkError):  # gone since git listed it, or refused

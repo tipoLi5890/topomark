@@ -480,6 +480,119 @@ IMPORT_FILES = {
 }
 
 
+OTHER_LANG_FILES = {
+    # C: the header sits in an include folder; the test includes it by that folder's path
+    "native/include/ring/buffer.h": "int ring_push(int value);\n",
+    "native/src/buffer.c": '#include "ring/buffer.h"\n\nint ring_push(int value) {\n  return value;\n}\n',
+    "native/src/drain.c": '#include "buffer_private.h"\n// #include "ring/unused.h"\n#include <stdio.h>\n\n'
+                          "int drain_all(void) {\n  return 0;\n}\n",
+    "native/src/buffer_private.h": '#include "ring/buffer.h"\n\nint ring_private(void);\n',
+    "native/tests/test_drain.c": '#include "../src/buffer_private.h"\n\nint main(void) {\n  return ring_private();\n}\n',
+    # Dart: package: and relative imports, a part file
+    "app/lib/models/cart.dart": "class Cart {\n  int total() => 0;\n}\n",
+    "app/lib/services/checkout.dart": "import '../models/cart.dart';\nimport 'dart:async';\n\n"
+                                      "int checkoutTotal(Cart c) => c.total();\n",
+    "app/test/checkout_test.dart": "import 'package:app/services/checkout.dart';\n\nvoid main() {\n  checkoutTotal;\n}\n",
+    # Go: module example.com/shop at the repository root; an outside package that ends like a folder here
+    "internal/pricing/price.go": "package pricing\n\nfunc Quote(n int) int {\n\treturn n\n}\n",
+    "internal/pricing/round.go": "package pricing\n\nfunc roundUp(n int) int {\n\treturn n\n}\n",
+    "internal/pricing/price_test.go": "package pricing\n\nfunc TestQuote() {\n\tQuote(1)\n}\n",
+    "internal/orders/order.go": 'package orders\n\nimport (\n\t"fmt"\n\n\t"example.com/shop/internal/pricing"\n'
+                                '\tlog "github.com/other/lib/logging"\n)\n\nfunc Place(n int) int {\n'
+                                "\tfmt.Println(n)\n\tlog.Info()\n\treturn pricing.Quote(n)\n}\n",
+    "internal/orders/order_test.go": "package orders\n\nfunc TestPlace() {\n\tPlace(1)\n}\n",
+    "logging/log.go": "package logging\n\nfunc Info() {}\n",
+    "cmd/shop/main.go": 'package main\n\nimport "example.com/shop/internal/orders"\n\nfunc main() {\n\torders.Place(1)\n}\n',
+    # Rust: a crate with a module folder
+    "engine/src/lib.rs": "pub mod codec;\nmod wire;\n",
+    "engine/src/codec/mod.rs": "pub mod frame;\n\npub fn encode() {}\n",
+    "engine/src/codec/frame.rs": "use crate::wire::Packet;\nuse super::encode;\nuse std::fmt;\n\npub struct Frame;\n",
+    "engine/src/wire.rs": "pub struct Packet;\n",
+    # Java and Kotlin
+    "svc/src/main/java/com/acme/billing/Invoice.java": "package com.acme.billing;\n\npublic class Invoice {\n"
+                                                       "    public static int max() { return 1; }\n}\n",
+    "svc/src/main/java/com/acme/billing/Tax.java": "package com.acme.billing;\n\npublic class Tax {}\n",
+    "svc/src/main/java/com/acme/api/Orders.java": "package com.acme.api;\n\nimport com.acme.billing.Invoice;\n"
+                                                  "import static com.acme.billing.Invoice.max;\nimport java.util.List;\n\n"
+                                                  "public class Orders {\n    Invoice last;\n}\n",
+    "svc/src/test/kotlin/com/acme/api/OrdersTest.kt": "package com.acme.api\n\nimport com.acme.billing.*\n"
+                                                      "import com.acme.api.Orders as O\n\nclass OrdersTest\n",
+}
+
+
+class OtherLanguageImportTests(unittest.TestCase):
+    """Import edges beyond Python and JS/TS: what a specifier resolves to, and that ``impact`` and
+    ``tests-for`` walk them."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.repo = TempRepo(OTHER_LANG_FILES)
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.repo.close()
+
+    def importers(self, path: str) -> list[str]:
+        return self.repo.json("impact", path)["importers"]["files"]
+
+    def test_what_each_language_resolves(self) -> None:
+        from topomark.imports import ImportResolver
+
+        r = ImportResolver(OTHER_LANG_FILES)
+        r.learn_go(["fmt", "example.com/shop/internal/pricing", "example.com/shop/internal/orders",
+                    "github.com/other/lib/logging"])
+        pricing = ["internal/pricing/price.go", "internal/pricing/round.go"]  # the package, without its test
+        cases: list[tuple[str, str, list[str]]] = [
+            ("native/src/buffer.c", "ring/buffer.h", ["native/include/ring/buffer.h"]),  # by include-path suffix
+            ("native/src/drain.c", "buffer_private.h", ["native/src/buffer_private.h"]),
+            ("native/tests/test_drain.c", "../src/buffer_private.h", ["native/src/buffer_private.h"]),
+            ("native/src/drain.c", "stdio.h", []),
+            ("app/lib/services/checkout.dart", "../models/cart.dart", ["app/lib/models/cart.dart"]),
+            ("app/test/checkout_test.dart", "package:app/services/checkout.dart", ["app/lib/services/checkout.dart"]),
+            ("app/lib/services/checkout.dart", "dart:async", []),
+            ("internal/orders/order.go", "example.com/shop/internal/pricing", pricing),
+            ("internal/orders/order.go", "fmt", []),
+            ("internal/orders/order.go", "github.com/other/lib/logging", []),  # not this repository's logging/
+            ("engine/src/lib.rs", "mod:codec", ["engine/src/codec/mod.rs"]),
+            ("engine/src/lib.rs", "mod:wire", ["engine/src/wire.rs"]),
+            ("engine/src/codec/mod.rs", "mod:frame", ["engine/src/codec/frame.rs"]),
+            ("engine/src/codec/frame.rs", "crate::wire::Packet", ["engine/src/wire.rs"]),
+            ("engine/src/codec/frame.rs", "super::encode", []),  # a function of the parent module, not a file
+            ("svc/src/main/java/com/acme/api/Orders.java", "com.acme.billing.Invoice",
+             ["svc/src/main/java/com/acme/billing/Invoice.java"]),
+            ("svc/src/main/java/com/acme/api/Orders.java", "com.acme.billing.Invoice.max",
+             ["svc/src/main/java/com/acme/billing/Invoice.java"]),
+            ("svc/src/main/java/com/acme/api/Orders.java", "java.util.List", []),
+            ("svc/src/test/kotlin/com/acme/api/OrdersTest.kt", "com.acme.billing.*",
+             ["svc/src/main/java/com/acme/billing/Invoice.java", "svc/src/main/java/com/acme/billing/Tax.java"]),
+        ]
+        for importer, spec, want in cases:
+            with self.subTest(importer=importer, spec=spec):
+                self.assertEqual(r.resolve_all(importer, spec), want)
+        one = ImportResolver(["util/u.go", "main.go"])  # one import, one segment matched: not enough to call it ours
+        self.assertEqual(one.resolve_all("main.go", "github.com/x/y/util"), [])
+
+    def test_impact_lists_importers(self) -> None:
+        self.assertEqual(self.importers("native/include/ring/buffer.h"),
+                         ["native/src/buffer.c", "native/src/buffer_private.h"])
+        self.assertEqual(self.importers("app/lib/models/cart.dart"), ["app/lib/services/checkout.dart"])
+        self.assertEqual(self.importers("internal/pricing/round.go"), ["internal/orders/order.go"])
+        self.assertEqual(self.importers("logging/log.go"), [])
+        self.assertEqual(self.importers("engine/src/wire.rs"), ["engine/src/codec/frame.rs", "engine/src/lib.rs"])
+        self.assertEqual(self.importers("svc/src/main/java/com/acme/billing/Invoice.java"),
+                         ["svc/src/main/java/com/acme/api/Orders.java", "svc/src/test/kotlin/com/acme/api/OrdersTest.kt"])
+
+    def test_tests_for_walks_the_edges(self) -> None:
+        def tests(path: str) -> list[str]:
+            return [t["path"] for t in self.repo.json("tests-for", path)["tests"]]
+
+        # two hops through the private header: no test names anything the public header declares
+        self.assertIn("native/tests/test_drain.c", tests("native/include/ring/buffer.h"))
+        self.assertIn("app/test/checkout_test.dart", tests("app/lib/models/cart.dart"))
+        # roundUp is unexported and named by no test: reached through the package that imports it
+        self.assertIn("internal/orders/order_test.go", tests("internal/pricing/round.go"))
+
+
 class ImportEdgeTests(unittest.TestCase):
     def test_resolver(self) -> None:
         from topomark.lang.base import DYNAMIC

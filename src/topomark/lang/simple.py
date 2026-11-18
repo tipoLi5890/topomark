@@ -6,8 +6,9 @@ from __future__ import annotations
 import json
 import re
 import tomllib
+from typing import Any
 
-from .base import FileInfo, Symbol, head_comment, idents_of, norm, norm_lines, surface_text
+from .base import FileInfo, Symbol, count_lines, head_comment, idents_of, norm, norm_lines, surface_text
 from .scan import Masked, Syntax, mask
 
 # ---------------------------------------------------------------- shell
@@ -105,7 +106,7 @@ class Shell:
                                   signature=norm(rlines[idx].split("{")[0]), line=idx + 1))
         header = head_comment(text)
         info = FileInfo(path=path, lang=self.name, header=header, symbols=symbols, idents=idents_of(m.text),
-                        line_count=len(rlines))
+                        line_count=count_lines(text))
         info.surface = surface_text(header, [s.signature for s in symbols])
         info.types = [s.name for s in symbols]
         return info
@@ -152,7 +153,7 @@ class Sql:
                                   end=m.line_of(end), signature=first, line=m.line_of(cm.start())))
         header = head_comment(text)
         info = FileInfo(path=path, lang=self.name, header=header, symbols=symbols, idents=idents_of(m.text),
-                        line_count=m.line_count)
+                        line_count=count_lines(text))
         info.surface = surface_text(header, [_sql_statement(m, s.start) for s in symbols])
         info.types = [s.name for s in symbols if s.kind in ("table", "view", "function", "procedure", "type")]
         return info
@@ -167,7 +168,7 @@ def _sql_statement(m: Masked, line: int) -> str:
 
 
 # ---------------------------------------------------------------- data files
-def json_skeleton(obj, prefix: str = "") -> list[str]:
+def json_skeleton(obj: Any, prefix: str = "") -> list[str]:
     keys: list[str] = []
     if isinstance(obj, dict):
         for k in sorted(obj):
@@ -246,14 +247,14 @@ class Data:
                 keys, symbols = self._yaml(text)
         except (ValueError, tomllib.TOMLDecodeError):
             return Plain().analyze(path, text)
-        info = FileInfo(path=path, lang=lang, symbols=symbols, idents=set(), line_count=text.count("\n") + 1)
+        info = FileInfo(path=path, lang=lang, symbols=symbols, idents=set(), line_count=count_lines(text))
         info.surface = "\n".join(keys)
         if low.endswith((".asmdef", ".asmref")):
             # assembly definitions are contracts: a changed reference or define is an interface change
             info.surface = json.dumps(obj, sort_keys=True, ensure_ascii=False, indent=1)
         return info
 
-    def _json_symbols(self, text: str, obj) -> list[Symbol]:
+    def _json_symbols(self, text: str, obj: Any) -> list[Symbol]:
         if not isinstance(obj, dict):
             return []
         out = []
@@ -375,7 +376,7 @@ class Markdown:
                     end = symbols[j].start - 1
                     break
             s.end = max(s.start, end)
-        info = FileInfo(path=path, lang=self.name, symbols=symbols, line_count=len(lines))
+        info = FileInfo(path=path, lang=self.name, symbols=symbols, line_count=count_lines(text))
         info.surface = "\n".join(s.signature for s in symbols)
         return info
 
@@ -401,7 +402,7 @@ class Plain:
     name = "text"
 
     def analyze(self, path: str, text: str) -> FileInfo:
-        info = FileInfo(path=path, lang=self.name, header=head_comment(text), line_count=text.count("\n") + 1,
+        info = FileInfo(path=path, lang=self.name, header=head_comment(text), line_count=count_lines(text),
                         idents=idents_of(text))
         info.surface = "\n".join(norm_lines(text.split("\n")))
         return info

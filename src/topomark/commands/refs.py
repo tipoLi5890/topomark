@@ -2,17 +2,22 @@
 
 from __future__ import annotations
 
+import argparse
 from collections import defaultdict
+from typing import TYPE_CHECKING, Any
 
 from . import Result
 from ._common import add
+
+if TYPE_CHECKING:
+    from ..context import Context
 
 
 TEXT_LIMIT = 20
 JSON_LIMIT = 200
 
 
-def register(sub, common) -> None:
+def register(sub: Any, common: argparse.ArgumentParser) -> None:
     p = add(sub, common, "refs", "reference sites of a name (word match in code, comments/strings excluded)",
             "Approximate: an identifier match, not a resolved binding. The declaration line itself is\n"
             "excluded. `Type.Member` lists `Member` lines in files that mention `Type` or declare it.\n"
@@ -29,7 +34,7 @@ def register(sub, common) -> None:
     p.set_defaults(handler=run)
 
 
-def run(args, ctx) -> Result:
+def run(args: argparse.Namespace, ctx: Context) -> Result:
     from ..navigate import Nav
 
     nav = Nav(ctx)

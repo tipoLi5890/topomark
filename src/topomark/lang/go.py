@@ -9,7 +9,7 @@ import re
 
 from ._decl import _IDENT, _short, _sig, _skip_balanced
 from .brace import BraceLanguage, Decl, _Scope
-from .scan import Syntax, mask
+from .scan import Masked, Syntax, mask
 
 _GO_FUNC = re.compile(rf"^func\s*(?:\(\s*(?:{_IDENT}\s+)?\*?\s*({_IDENT})[^)]*\)\s*)?({_IDENT})\s*[\[(]")
 _GO_TYPE = re.compile(rf"^type\s+({_IDENT})\s*(?:\[[^\]]*\])?\s*(struct|interface)\b")
@@ -25,6 +25,11 @@ class Go(BraceLanguage):
                     char_literals_only=True)
     terminators = ";\n"
     functions_are_types = True
+
+    def imports_of(self, masked: Masked) -> list[str]:
+        from ._imports import go_imports
+
+        return go_imports(masked.text, masked.original)
 
     def classify_block(self, header: str, raw: str, parent: _Scope, enclosing_type: str) -> Decl | None:
         h = header.strip()
@@ -85,7 +90,9 @@ class Go(BraceLanguage):
             if depth == 0:
                 m = re.match(rf"\s*({_IDENT})", line)
                 if m:
-                    names_end = re.match(rf"\s*{_IDENT}(?:\s*,\s*{_IDENT})*", line).end()
+                    names_m = re.match(rf"\s*{_IDENT}(?:\s*,\s*{_IDENT})*", line)
+                    assert names_m is not None  # `m` above matched the first name
+                    names_end = names_m.end()
                     for nm in re.finditer(_IDENT, line[:names_end]):
                         at = k + nm.start()
                         out.append(Decl(kw if kw != "type" else "type", nm.group(0), _go_exported(nm.group(0)),

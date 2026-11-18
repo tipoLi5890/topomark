@@ -31,8 +31,12 @@ import json
 import re
 import sys
 import tomllib
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Callable
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .context import Context
 
 PY_EXT = (".py", ".pyi")
 JSON_EXT = (".json", ".asmdef", ".asmref")
@@ -80,7 +84,12 @@ def _python(path: str, text: str) -> tuple[int, int, str] | None:
         return e.lineno or 1, e.offset or 0, e.msg
     except ValueError as e:  # null bytes
         return 1, 0, str(e)
+    except (RecursionError, MemoryError):  # the interpreter could not compile it either
+        return 1, 0, _TOO_DEEP
     return None
+
+
+_TOO_DEEP = "nested too deeply to parse"
 
 
 def strip_jsonc(text: str) -> str:
@@ -145,11 +154,13 @@ def _json(text: str, jsonc: bool) -> tuple[int, int, str] | None:
         return None
     except ValueError as e:
         err = e
+    except (RecursionError, MemoryError):
+        return 1, 0, _TOO_DEEP
     if not jsonc:
         try:
             json.loads(strip_jsonc(text))
             return None  # JSON with comments (tsconfig.json, .vscode/*.json): fine
-        except ValueError:
+        except (ValueError, RecursionError, MemoryError):
             pass
     if isinstance(err, json.JSONDecodeError):
         return err.lineno, err.colno, err.msg
@@ -163,6 +174,8 @@ def _toml(text: str) -> tuple[int, int, str] | None:
         msg = str(e)
         m = _TOML_AT.search(msg)
         return (int(m[1]), int(m[2]), _TOML_AT.sub("", msg).strip()) if m else (1, 0, msg)
+    except (RecursionError, MemoryError):
+        return 1, 0, _TOO_DEEP
     return None
 
 
@@ -187,13 +200,13 @@ def imbalance(masked: str) -> tuple[int, str] | None:
     return None
 
 
-def _head_text(ctx, path: str) -> str | None:
+def _head_text(ctx: Context, path: str) -> str | None:
     from .repo import git_objects
 
     return git_objects(ctx.root, [f"HEAD:{path}"])[f"HEAD:{path}"]  # None: no commit yet, or the file is new
 
 
-def newer_python(ctx, path: str) -> str | None:
+def newer_python(ctx: Context, path: str) -> str | None:
     """The ``requires-python`` of the ``pyproject.toml`` nearest to ``path`` (its folder, then up
     to the repo root) when its minimum is newer than the running interpreter, else None."""
     from .errors import TopomarkError
@@ -215,7 +228,7 @@ def newer_python(ctx, path: str) -> str | None:
 
 
 # ---------------------------------------------------------------- entry points
-def check_file(ctx, path: str) -> Checked:
+def check_file(ctx: Context, path: str) -> Checked:
     """Check one repo file (repo-relative POSIX path) as it is on disk now."""
     from .errors import TopomarkError
     from .lang import registry
@@ -271,5 +284,5 @@ def check_file(ctx, path: str) -> Checked:
     return res
 
 
-def check_paths(ctx, paths: list[str]) -> list[Checked]:
+def check_paths(ctx: Context, paths: list[str]) -> list[Checked]:
     return [check_file(ctx, p) for p in paths]

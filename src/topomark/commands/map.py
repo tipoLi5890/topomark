@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
+import argparse
+from typing import TYPE_CHECKING, Any
+
 from . import Result
 from ._common import add, rel
 
+if TYPE_CHECKING:
+    from ..context import Context
+    from ..lang.base import Symbol
+    from ..navigate import Nav
 
-def register(sub, common) -> None:
+
+def register(sub: Any, common: argparse.ArgumentParser) -> None:
     p = add(sub, common, "map", "ranked repo map: the most central files and their key signatures, within a token budget",
             "Files are ranked by PageRank over the reference graph, personalised toward --focus files\n"
             "(or files declaring a focused name). Each file shows its highest-weight declarations\n"
@@ -20,7 +28,7 @@ def register(sub, common) -> None:
     p.set_defaults(handler=run)
 
 
-def _render(nav, chosen: dict[str, list], order: list[str]) -> str:
+def _render(nav: Nav, chosen: dict[str, list[Symbol]], order: list[str]) -> str:
     from ..navigate import clip, depth_of
 
     out = []
@@ -49,7 +57,7 @@ def _render(nav, chosen: dict[str, list], order: list[str]) -> str:
     return "\n".join(out) + ("\n" if out else "")
 
 
-def run(args, ctx) -> Result:
+def run(args: argparse.Namespace, ctx: Context) -> Result:
     import heapq
 
     from ..navigate import Nav, estimate_tokens
@@ -102,14 +110,14 @@ def run(args, ctx) -> Result:
                 heapq.heapreplace(top, w)
     pairs.sort(key=lambda x: (-x[0], x[1], x[2].start))
 
-    def build(n: int):
-        chosen: dict[str, list] = {}
+    def build(n: int) -> tuple[dict[str, list[Symbol]], str]:
+        chosen: dict[str, list[Symbol]] = {}
         for _, p, s in pairs[:n]:
             chosen.setdefault(p, []).append(s)
         return chosen, _render(nav, chosen, files)
 
     lo, hi = 0, min(len(pairs), budget)
-    best = ({}, "")
+    best: tuple[dict[str, list[Symbol]], str] = ({}, "")
     while lo <= hi:
         mid = (lo + hi) // 2
         chosen, text = build(mid)

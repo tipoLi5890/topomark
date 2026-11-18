@@ -16,7 +16,7 @@ Task file (TOML), one ``[[task]]`` per question::
 
     [[task]]
     id = "find-stamp"
-    kind = "find"            # find | search | locate | brief | tests
+    kind = "find"            # find | search | locate | brief | tests | refs | impact | map
     query = "stamp"          # what the agent types; {line:path#Qual} = a line inside that symbol
     args = ["--limit", "20"] # optional extra arguments
     gold = "src/topomark/stamps.py#Stamps"   # or a list (any one counts); "path" alone = that file
@@ -25,15 +25,18 @@ Task file (TOML), one ``[[task]]`` per question::
     expect = "miss"          # optional, default "hit": a control the command must NOT answer with gold
 
 Kinds map to commands: find → ``find``, search → ``search``, locate → ``locate``,
-brief → ``brief``, tests → ``tests-for``. A task whose command (or one of whose
+brief → ``brief``, tests → ``tests-for``, refs → ``refs``, impact → ``impact``, map → ``map``
+(no ``query``: its arguments are ``args``). A task whose command (or one of whose
 ``--flags``) the parser does not have is reported as ``skipped: command not
 available`` (``flag not available``), so tasks can be written before the command.
 
 Candidates are read from the ``--json`` output in document order: an object
 with ``path`` (and ``qualname`` or ``symbol``) is the candidate ``path#qualname``;
 a string that is a repo file (or ``file#Qual``) inside a list is a candidate
-too. ``find`` and ``tests-for`` are read from their answer key only (``results``,
-``tests``); other commands from the whole payload, and the task's own input file
+too. ``find``, ``tests-for``, ``refs`` and ``map`` are read from their answer key only
+(``results``, ``tests``, ``results``, ``files``); ``impact`` from everything but the
+definitions it starts from (the question is who a change reaches); other commands
+from the whole payload. A file the task itself names (the query, or a ``--focus``)
 is never an answer. A symbol gold ranks among distinct ``path#qualname``
 candidates, a file gold among distinct paths. New commands should list their
 answers in that shape, best first.
@@ -71,7 +74,7 @@ and prints both side by side; the tasks, the target repo and the synthetic repo
 stay the current ones. So does the target's ``topomark.toml``, which REV may not
 read: topomark up to 0.2.0 rejects keys it does not know (later versions warn and
 read on), and a REV before the key existed (``suite`` in ``[[tests.runner]]``,
-before 21e15fb) would fail every task with ``CONFIG``. The REV side therefore runs with ``--compat-config``: when its
+which 0.1.0 lacks) would fail every task with ``CONFIG``. The REV side therefore runs with ``--compat-config``: when its
 topomark rejects the file, it reads a temporary copy (``--config``) without each
 key its ``CONFIG`` errors name, and the report lists the keys dropped. That side
 then runs without what they configure (the runner's suite command), as REV did.
@@ -101,8 +104,12 @@ from typing import Any
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
-KIND_COMMAND = {"find": "find", "search": "search", "locate": "locate", "brief": "brief", "tests": "tests-for"}
-ANSWER_KEY = {"find": "results", "search": "results", "locate": "results", "brief": "related", "tests": "tests"}  # kinds whose JSON shape is known
+KIND_COMMAND = {"find": "find", "search": "search", "locate": "locate", "brief": "brief", "tests": "tests-for",
+                "refs": "refs", "impact": "impact", "map": "map"}
+# kinds whose JSON shape is known
+ANSWER_KEY = {"find": "results", "search": "results", "locate": "results", "brief": "related", "tests": "tests",
+              "refs": "results", "map": "files"}
+LEFT_OUT = {"impact": ("definitions",)}  # payload keys that hold the question, not the answer
 ANSWERS = {"NOT_FOUND", "UNSUPPORTED"}  # error codes that are the command's answer (nothing found): a miss
 EXPECT = ("hit", "miss")
 SYNTH_FILES = 150
@@ -214,7 +221,7 @@ def _prints(task: dict, repo: Path, path: str, qual: str) -> bool:
     for s in _symbols(repo, path):
         if s.qualname == qual:
             body = "\n".join(lines[s.start - 1:s.end])
-            return any(f"{a} {b}" in body for a, b in zip(words, words[1:]))
+            return any(f"{a} {b}" in body for a, b in zip(words, words[1:], strict=False))
     return False
 
 
@@ -440,10 +447,11 @@ def run_task(task: dict, repo: Path, files: set[str], subs: dict[str, set[str]],
         if error.get("code") not in ANSWERS:
             return {**row, "status": "error"}
     else:
-        answer = payload.get(ANSWER_KEY[task["kind"]], []) if task["kind"] in ANSWER_KEY else payload
+        answer = payload.get(ANSWER_KEY[task["kind"]], []) if task["kind"] in ANSWER_KEY else {
+            k: v for k, v in payload.items() if k not in LEFT_OUT.get(task["kind"], ())}
         cands = candidates(answer, files)
-        if len(argv) > 1 and argv[1] in files:  # the input file itself is not an answer
-            cands = [c for c in cands if c[0] != argv[1]]
+        named = {a for a in argv[1:] if a in files}  # a file the task names (query, --focus) is not an answer
+        cands = [c for c in cands if c[0] not in named]
     rank = gold_rank(cands, task["gold"])
     row.update({"status": "ok", "rank": rank, "hit1": rank == 1, "hit5": rank is not None and rank <= 5,
                 "top": [f"{p}#{q}" if q else p for p, q in _dedupe(cands)[:3]]})

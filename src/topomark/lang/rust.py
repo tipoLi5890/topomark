@@ -10,7 +10,7 @@ import re
 from ._decl import _IDENT, _enum_entries, _is_kind, _short, _sig, _skip_balanced
 from .base import FileInfo, norm
 from .brace import BraceLanguage, Decl, _Scope
-from .scan import Syntax
+from .scan import Masked, Syntax
 
 _RS_VIS = r"(?:pub(?:\s*\([^)]*\))?\s+)?"
 _RS_QUAL = r"(?:(?:default|const|async|unsafe|extern(?:\s+\"[^\"]*\")?)\s+)*"
@@ -54,6 +54,11 @@ class Rust(BraceLanguage):
     syntax = Syntax(line_comments=("//",), block_comments=(("/*", "*/"),), nested_block_comments=True,
                     quotes=('"', "'"), char_literals_only=True, rust_raw=True)
     functions_are_types = True
+
+    def imports_of(self, masked: Masked) -> list[str]:
+        from ._imports import rust_imports
+
+        return rust_imports(masked.text, masked.original)
 
     def _exported(self, vis: str, parent: _Scope) -> bool:
         if parent.kind == "trait" or (parent.kind == "impl" and parent.sym and any(a.startswith("trait ")

@@ -13,15 +13,25 @@ the callers then the tests as shown, the order an agent reads them.
 
 from __future__ import annotations
 
+import argparse
+from typing import TYPE_CHECKING, Any
+
 from . import Result
 from ._common import add, rel
+
+if TYPE_CHECKING:
+    from ..config import TestRunner
+    from ..context import Context
+    from ..lang.base import Symbol
+    from ..navigate import Nav
+    from ..testsel import TestPick
 
 DEFAULT_TOKENS = 1500
 TOP = 10      # longest caller and test lists before the budget cuts them
 KEEP = 3      # what the budget leaves of those lists
 
 
-def register(sub, common) -> None:
+def register(sub: Any, common: argparse.ArgumentParser) -> None:
     p = add(sub, common, "brief", "one budgeted briefing before an edit: area row, outline, callers, tests, run command",
             "A file, <file>#<Name> or a Name. Combines owner (area, row, review stamp), outline\n"
             "(exported, two levels), impact (fan-in, importers, callers one hop away, most coupled\n"
@@ -37,27 +47,27 @@ def register(sub, common) -> None:
 
 
 # ---------------------------------------------------------------- gathering
-def _outline_rows(symbols) -> list[dict]:
+def _outline_rows(symbols: list[Symbol]) -> list[dict]:
     from ..navigate import depth_of
 
     return [{"qualname": s.qualname, "kind": s.kind, "start": s.start, "end": s.end, "signature": s.signature,
              "depth": depth_of(s)} for s in symbols]
 
 
-def _pick_json(pk) -> dict:
+def _pick_json(pk: TestPick) -> dict:
     d = pk.to_json()
     d.pop("names", None)
     return d
 
 
-def _tests(nav, picks, runners) -> dict:
+def _tests(nav: Nav, picks: list[TestPick], runners: list[TestRunner]) -> dict:
     from ..runners import runner_commands
 
     commands, unmatched = runner_commands(runners, picks)
     return {"tests": [_pick_json(pk) for pk in picks], "commands": commands, "unmatched": [pk.path for pk in unmatched]}
 
 
-def _file_brief(nav, path: str) -> dict:
+def _file_brief(nav: Nav, path: str) -> dict:
     from ..navigate import code_map_row, depth_of, impact_file
     from ..testsel import select_tests
 
@@ -85,7 +95,7 @@ def _file_brief(nav, path: str) -> dict:
             "mentions": {"count": imp["mentions"]["count"], "files": imp["mentions"]["files"]}}
 
 
-def _symbol_brief(nav, spec: str) -> dict:
+def _symbol_brief(nav: Nav, spec: str) -> dict:
     from collections import Counter
 
     from ..navigate import code_map_row, impact_symbol
@@ -100,7 +110,8 @@ def _symbol_brief(nav, spec: str) -> dict:
     sites = nav.ref_sites(name)
     imp = impact_symbol(nav, name, top=10**6, sites=sites)
     per_file = Counter(s.path for s in sites)
-    callers = [{"path": f, "sites": n} for f, n in per_file.items() if not nav.is_test(f) and f != path]
+    callers: list[dict[str, Any]] = [{"path": f, "sites": n} for f, n in per_file.items()
+                                     if not nav.is_test(f) and f != path]
     callers.sort(key=lambda c: (-c["sites"], c["path"]))
     picks = []
     for t in sorted({s.path for s in sites if s.test}, key=lambda f: (-per_file[f], f)):
@@ -209,7 +220,7 @@ def _render(b: dict, lim: dict, suite: list[str]) -> list[str]:
     return out
 
 
-def run(args, ctx) -> Result:
+def run(args: argparse.Namespace, ctx: Context) -> Result:
     from ..errors import TopomarkError
     from ..navigate import Nav, estimate_tokens
 

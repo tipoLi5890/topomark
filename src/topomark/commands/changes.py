@@ -3,13 +3,21 @@ who still uses the changed interfaces, the tests to run, and the code-map rows t
 
 from __future__ import annotations
 
+import argparse
+from typing import TYPE_CHECKING, Any
+
 from . import Result
 from ._common import add
+
+if TYPE_CHECKING:
+    from ..context import Context
+    from ..lang.base import FileInfo
+    from ..navigate import Nav
 
 MAX_IMPACT = 12   # interface changes whose references are looked up; the rest get a pointer to `impact`
 
 
-def register(sub, common) -> None:
+def register(sub: Any, common: argparse.ArgumentParser) -> None:
     p = add(sub, common, "changes", "the symbols a diff touches (interface or body), their callers, tests, rows to review",
             "`git diff -U0` line ranges mapped to the innermost declaration on each side; the old side\n"
             "is analyzed from `git show REV:path`. By qualified name: added, removed or a changed\n"
@@ -30,7 +38,8 @@ def _specs(path: str, status: str, base: str | None, staged: bool) -> list[str]:
            ([f":{path}"] if status != "deleted" and staged else [])
 
 
-def _sides(nav, path: str, status: str, base: str | None, staged: bool, objects: dict[str, str | None]):
+def _sides(nav: Nav, path: str, status: str, base: str | None, staged: bool, objects: dict[str, str | None]
+           ) -> tuple[FileInfo | None, FileInfo | None, list[str] | None, list[str] | None]:
     """(old FileInfo, new FileInfo, old lines, new lines) for one changed file; None where a side
     does not exist or is too large to parse. ``objects`` holds the text of ``_specs``."""
     from ..index import MAX_BYTES
@@ -68,7 +77,7 @@ def _fold(symbols: list[dict]) -> list[tuple[dict, int]]:
     return [(s, counts.get(s["qualname"], 0)) for s in order]
 
 
-def run(args, ctx) -> Result:
+def run(args: argparse.Namespace, ctx: Context) -> Result:
     from .. import changes as C
     from ..errors import TopomarkError
     from ..lang import registry
@@ -89,11 +98,14 @@ def run(args, ctx) -> Result:
     else:
         base = "HEAD" if git(root, "rev-parse", "--verify", "-q", "HEAD", check=False).strip() else None
         diff_args, source = (["--cached"] if args.staged else ["HEAD"]), ("staged" if args.staged else "diff")
-    out = git(root, "-c", "core.quotePath=false", "diff", "-U0", "--no-color", "--no-ext-diff", "--no-renames",
+    # --no-ext-diff and --no-textconv: a repository's own config must not choose a program to run here
+    out = git(root, "-c", "core.quotePath=false", "diff", "-U0", "--no-color", "--no-ext-diff", "--no-textconv",
+              "--no-renames",
               "--src-prefix=a/", "--dst-prefix=b/",  # the parser reads a/ and b/, whatever diff.noprefix says
               *diff_args, "--", check=False) if base or args.staged else ""
     diffs = C.parse_diff(out)
-    for name in changed_files(ctx, staged=args.staged, since=args.since):
+    for name in changed_files(ctx, staged=args.staged, since=args.since, has_head=base is not None,
+                              since_checked=True):
         if name not in diffs:
             diffs[name] = C.FileDiff(name, "added", whole=True)
     nav = Nav(ctx)
@@ -115,7 +127,8 @@ def run(args, ctx) -> Result:
         d = diffs[path]
         old, new, old_lines, new_lines = _sides(nav, path, d.status, base, args.staged, objects)
         syms, header, outside = C.classify(old, new, d, old_lines, new_lines)
-        files.append({"path": path, "status": d.status, "lang": (new or old).lang if (new or old) else "",
+        side = new or old
+        files.append({"path": path, "status": d.status, "lang": side.lang if side else "",
                       "header_changed": header, "outside_declarations": outside and d.status == "modified",
                       "symbols": syms})
         interface += [(path, s) for s in syms if s["change"] in C.INTERFACE]
